@@ -100,13 +100,13 @@ ClaudeBuddy reads these files (read-only) and presents them in a friendly UI. Yo
 ## Screenshots
 
 <details>
-<summary>Stats Dashboard</summary>
+<summary>Stats</summary>
 
 ![Stats](./screenshots/stats.png)
 </details>
 
 <details>
-<summary>Projects View</summary>
+<summary>Projects</summary>
 
 ![Projects](./screenshots/projects.png)
 </details>
