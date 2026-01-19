@@ -1,0 +1,47 @@
+{
+  "name": "claudebuddy",
+  "version": "1.0.0",
+  "description": "ClaudeBuddy - Your friendly companion dashboard for Claude Code",
+  "main": "server/index.js",
+  "bin": {
+    "claudebuddy": "./scripts/launcher.js"
+  },
+  "scripts": {
+    "postinstall": "cd client && npm install && npm run build",
+    "start": "node server/index.js",
+    "dev": "concurrently \"node server/index.js\" \"cd client && npm run dev\"",
+    "build": "cd client && npm run build",
+    "server": "node server/index.js"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "anthropic",
+    "dashboard",
+    "cli",
+    "ai",
+    "developer-tools",
+    "productivity",
+    "claudebuddy"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/claudebuddy"
+  },
+  "homepage": "https://github.com/yourusername/claudebuddy#readme",
+  "bugs": {
+    "url": "https://github.com/yourusername/claudebuddy/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "type": "commonjs",
+  "dependencies": {
+    "concurrently": "^9.1.2",
+    "cors": "^2.8.5",
+    "express": "^5.2.1",
+    "open": "^10.1.1"
+  }
+}
