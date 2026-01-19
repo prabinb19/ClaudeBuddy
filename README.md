@@ -99,29 +99,17 @@ ClaudeBuddy reads these files (read-only) and presents them in a friendly UI. Yo
 
 ## Screenshots
 
-<details>
-<summary>Stats</summary>
-
+### Stats
 ![Stats](./screenshots/stats.png)
-</details>
 
-<details>
-<summary>Projects</summary>
-
+### Projects
 ![Projects](./screenshots/projects.png)
-</details>
 
-<details>
-<summary>History</summary>
-
+### History
 ![History](./screenshots/history.png)
-</details>
 
-<details>
-<summary>MCP Browser</summary>
-
+### MCP Browser
 ![MCP](./screenshots/mcp.png)
-</details>
 
 ## Tech Stack
 
