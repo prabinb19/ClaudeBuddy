@@ -1027,6 +1027,492 @@ app.get('/api/mcp', async (req, res) => {
   }
 });
 
+// Productivity metrics cache
+let productivityCache = {
+  data: null,
+  timestamp: 0,
+  TTL: 1000 * 60 * 5 // 5 minutes
+};
+
+// Compute velocity metrics from sessions
+function computeVelocityMetrics(sessions) {
+  const filesModifiedByDay = {};
+  let totalWrites = 0;
+  let totalEdits = 0;
+  let totalLinesChanged = 0;
+  const operationsByDay = {};
+
+  for (const session of sessions) {
+    const date = session.date;
+    if (!filesModifiedByDay[date]) {
+      filesModifiedByDay[date] = new Set();
+    }
+    if (!operationsByDay[date]) {
+      operationsByDay[date] = { writes: 0, edits: 0 };
+    }
+
+    for (const op of session.operations) {
+      if (op.type === 'write') {
+        totalWrites++;
+        operationsByDay[date].writes++;
+        if (op.filePath) {
+          filesModifiedByDay[date].add(op.filePath);
+        }
+        // Estimate lines from content
+        if (op.content) {
+          totalLinesChanged += (op.content.match(/\n/g) || []).length + 1;
+        }
+      } else if (op.type === 'edit') {
+        totalEdits++;
+        operationsByDay[date].edits++;
+        if (op.filePath) {
+          filesModifiedByDay[date].add(op.filePath);
+        }
+        // Estimate lines changed from old/new strings
+        const oldLines = op.oldString ? (op.oldString.match(/\n/g) || []).length + 1 : 0;
+        const newLines = op.newString ? (op.newString.match(/\n/g) || []).length + 1 : 0;
+        totalLinesChanged += Math.abs(newLines - oldLines) + Math.min(oldLines, newLines);
+      }
+    }
+  }
+
+  // Convert sets to counts
+  const filesPerDay = Object.entries(filesModifiedByDay)
+    .map(([date, files]) => ({ date, count: files.size }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // Operations trend (last 14 days)
+  const sortedDays = Object.keys(operationsByDay).sort();
+  const last14Days = sortedDays.slice(-14);
+  const operationsTrend = last14Days.map(date => ({
+    date,
+    writes: operationsByDay[date]?.writes || 0,
+    edits: operationsByDay[date]?.edits || 0,
+    total: (operationsByDay[date]?.writes || 0) + (operationsByDay[date]?.edits || 0)
+  }));
+
+  const totalCodeOperations = totalWrites + totalEdits;
+  const activeDays = Object.keys(operationsByDay).length;
+  const averageOpsPerDay = activeDays > 0 ? Math.round(totalCodeOperations / activeDays * 10) / 10 : 0;
+
+  return {
+    filesModifiedByDay: filesPerDay,
+    linesChangedEstimate: totalLinesChanged,
+    totalCodeOperations,
+    totalWrites,
+    totalEdits,
+    averageOpsPerDay,
+    operationsTrend
+  };
+}
+
+// Compute efficiency metrics
+function computeEfficiencyMetrics(sessions, modelUsage) {
+  // Peak hours heatmap (7 days x 24 hours)
+  const heatmap = Array(7).fill(null).map(() => Array(24).fill(0));
+  const sessionDurations = { '0-15': 0, '15-30': 0, '30-60': 0, '60+': 0 };
+  let totalOps = 0;
+  let totalTokens = 0;
+
+  for (const session of sessions) {
+    // Process timestamps for heatmap
+    for (const op of session.operations) {
+      if (op.timestamp) {
+        const date = new Date(op.timestamp);
+        const dayOfWeek = date.getDay();
+        const hour = date.getHours();
+        heatmap[dayOfWeek][hour]++;
+      }
+    }
+
+    // Session duration buckets
+    if (session.startTime && session.endTime) {
+      const duration = (new Date(session.endTime) - new Date(session.startTime)) / 1000 / 60;
+      if (duration < 15) sessionDurations['0-15']++;
+      else if (duration < 30) sessionDurations['15-30']++;
+      else if (duration < 60) sessionDurations['30-60']++;
+      else sessionDurations['60+']++;
+    }
+
+    totalOps += session.operations.filter(op => op.type === 'write' || op.type === 'edit').length;
+  }
+
+  // Calculate tokens from model usage
+  if (modelUsage) {
+    for (const usage of Object.values(modelUsage)) {
+      totalTokens += (usage.inputTokens || 0) + (usage.outputTokens || 0);
+    }
+  }
+
+  // Ops per session
+  const opsPerSession = sessions.length > 0 ? Math.round(totalOps / sessions.length * 10) / 10 : 0;
+
+  // Tokens per code operation
+  const tokensPerCodeOp = totalOps > 0 ? Math.round(totalTokens / totalOps) : 0;
+
+  return {
+    peakHoursHeatmap: heatmap,
+    sessionDurations,
+    opsPerSession,
+    tokensPerCodeOp,
+    totalTokens
+  };
+}
+
+// Compute pattern metrics
+function computePatternMetrics(sessions, dailyActivity) {
+  // Productivity by day of week
+  const productivityByDay = [0, 0, 0, 0, 0, 0, 0]; // Sun-Sat
+  const daysCount = [0, 0, 0, 0, 0, 0, 0];
+
+  const activeDates = new Set();
+  const fileEditCounts = {};
+
+  for (const session of sessions) {
+    if (session.date) {
+      const dayOfWeek = new Date(session.date).getDay();
+      const opsCount = session.operations.filter(op => op.type === 'write' || op.type === 'edit').length;
+      productivityByDay[dayOfWeek] += opsCount;
+      activeDates.add(session.date);
+    }
+
+    // Track most edited files
+    for (const op of session.operations) {
+      if ((op.type === 'write' || op.type === 'edit') && op.filePath) {
+        const fileName = op.filePath.split('/').pop();
+        if (!fileEditCounts[op.filePath]) {
+          fileEditCounts[op.filePath] = { path: op.filePath, name: fileName, count: 0 };
+        }
+        fileEditCounts[op.filePath].count++;
+      }
+    }
+  }
+
+  // Count days per day of week from daily activity
+  if (dailyActivity) {
+    for (const day of dailyActivity) {
+      const dayOfWeek = new Date(day.date).getDay();
+      daysCount[dayOfWeek]++;
+    }
+  }
+
+  // Average productivity by day of week
+  const avgProductivityByDay = productivityByDay.map((total, i) => ({
+    day: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][i],
+    total,
+    average: daysCount[i] > 0 ? Math.round(total / daysCount[i] * 10) / 10 : 0
+  }));
+
+  // Calculate streaks
+  const sortedDates = Array.from(activeDates).sort();
+  let currentStreak = 0;
+  let longestStreak = 0;
+  let tempStreak = 0;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  for (let i = sortedDates.length - 1; i >= 0; i--) {
+    const date = new Date(sortedDates[i]);
+    date.setHours(0, 0, 0, 0);
+    const expectedDate = new Date(today);
+    expectedDate.setDate(expectedDate.getDate() - (sortedDates.length - 1 - i));
+    expectedDate.setHours(0, 0, 0, 0);
+
+    if (i === sortedDates.length - 1) {
+      // Check if most recent activity is today or yesterday
+      const diffDays = Math.floor((today - date) / (1000 * 60 * 60 * 24));
+      if (diffDays <= 1) {
+        tempStreak = 1;
+      }
+    }
+  }
+
+  // Calculate current streak by walking backwards
+  for (let i = 0; i < 365; i++) {
+    const checkDate = new Date(today);
+    checkDate.setDate(checkDate.getDate() - i);
+    const dateStr = checkDate.toISOString().split('T')[0];
+    if (activeDates.has(dateStr)) {
+      currentStreak++;
+    } else if (i > 0) {
+      break;
+    }
+  }
+
+  // Calculate longest streak
+  tempStreak = 0;
+  for (let i = 0; i < sortedDates.length; i++) {
+    if (i === 0) {
+      tempStreak = 1;
+    } else {
+      const prevDate = new Date(sortedDates[i - 1]);
+      const currDate = new Date(sortedDates[i]);
+      const diffDays = Math.floor((currDate - prevDate) / (1000 * 60 * 60 * 24));
+      if (diffDays === 1) {
+        tempStreak++;
+      } else {
+        tempStreak = 1;
+      }
+    }
+    longestStreak = Math.max(longestStreak, tempStreak);
+  }
+
+  // Focus sessions (>30 min with sustained activity)
+  const focusSessions = sessions.filter(s => {
+    if (!s.startTime || !s.endTime) return false;
+    const duration = (new Date(s.endTime) - new Date(s.startTime)) / 1000 / 60;
+    const opsCount = s.operations.filter(op => op.type === 'write' || op.type === 'edit').length;
+    return duration >= 30 && opsCount >= 3;
+  }).length;
+
+  // Most edited files (top 10)
+  const mostEditedFiles = Object.values(fileEditCounts)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+
+  return {
+    productivityByDayOfWeek: avgProductivityByDay,
+    currentStreak,
+    longestStreak,
+    focusSessions,
+    mostEditedFiles,
+    totalActiveDays: activeDates.size
+  };
+}
+
+// Compute tool usage metrics
+function computeToolUsageMetrics(sessions) {
+  const distribution = {
+    Write: 0,
+    Edit: 0,
+    Read: 0,
+    Bash: 0,
+    Glob: 0,
+    Grep: 0
+  };
+
+  const trendsByDay = {};
+
+  for (const session of sessions) {
+    const date = session.date;
+    if (!trendsByDay[date]) {
+      trendsByDay[date] = { Write: 0, Edit: 0, Read: 0, Bash: 0, Glob: 0, Grep: 0 };
+    }
+
+    for (const op of session.operations) {
+      const toolName = op.type.charAt(0).toUpperCase() + op.type.slice(1);
+      if (distribution.hasOwnProperty(toolName)) {
+        distribution[toolName]++;
+        trendsByDay[date][toolName]++;
+      }
+    }
+  }
+
+  // Read:Write ratio
+  const totalReads = distribution.Read;
+  const totalWrites = distribution.Write + distribution.Edit;
+  const readWriteRatio = totalWrites > 0 ? Math.round(totalReads / totalWrites * 100) / 100 : 0;
+
+  let ratioInsight = '';
+  if (readWriteRatio > 3) {
+    ratioInsight = 'Heavy research/exploration pattern';
+  } else if (readWriteRatio > 1.5) {
+    ratioInsight = 'Balanced reading and coding';
+  } else if (readWriteRatio > 0.5) {
+    ratioInsight = 'Active coding with context checks';
+  } else {
+    ratioInsight = 'High-velocity coding mode';
+  }
+
+  // Trends (last 14 days)
+  const sortedDays = Object.keys(trendsByDay).sort();
+  const last14Days = sortedDays.slice(-14);
+  const trends = last14Days.map(date => ({
+    date,
+    ...trendsByDay[date]
+  }));
+
+  return {
+    distribution,
+    readWriteRatio,
+    ratioInsight,
+    trends
+  };
+}
+
+// Extract all sessions with their operations
+async function extractAllSessions() {
+  const projectsDir = path.join(CLAUDE_DIR, 'projects');
+  if (!fs.existsSync(projectsDir)) {
+    return [];
+  }
+
+  const sessions = [];
+  const projectDirs = fs.readdirSync(projectsDir);
+
+  for (const dir of projectDirs) {
+    const projectPath = path.join(projectsDir, dir);
+    const stat = fs.statSync(projectPath);
+
+    if (stat.isDirectory()) {
+      const files = fs.readdirSync(projectPath).filter(f => f.endsWith('.jsonl'));
+
+      for (const file of files) {
+        const sessionPath = path.join(projectPath, file);
+        const rawMessages = await parseJSONL(sessionPath);
+
+        const operations = [];
+        let startTime = null;
+        let endTime = null;
+
+        for (const msg of rawMessages) {
+          if (msg.timestamp) {
+            if (!startTime || msg.timestamp < startTime) startTime = msg.timestamp;
+            if (!endTime || msg.timestamp > endTime) endTime = msg.timestamp;
+          }
+
+          if (msg.type === 'assistant' || msg.message?.role === 'assistant') {
+            const toolCalls = extractToolCalls(msg.message);
+            for (const tool of toolCalls) {
+              const op = {
+                type: tool.name.toLowerCase(),
+                timestamp: msg.timestamp
+              };
+
+              if (tool.name === 'Write') {
+                op.filePath = tool.input?.file_path;
+                op.content = tool.input?.content;
+              } else if (tool.name === 'Edit') {
+                op.filePath = tool.input?.file_path;
+                op.oldString = tool.input?.old_string;
+                op.newString = tool.input?.new_string;
+              } else if (tool.name === 'Read') {
+                op.filePath = tool.input?.file_path;
+              } else if (tool.name === 'Bash') {
+                op.command = tool.input?.command;
+              } else if (tool.name === 'Glob') {
+                op.pattern = tool.input?.pattern;
+              } else if (tool.name === 'Grep') {
+                op.pattern = tool.input?.pattern;
+              }
+
+              operations.push(op);
+            }
+          }
+        }
+
+        if (startTime) {
+          sessions.push({
+            id: file.replace('.jsonl', ''),
+            project: dir,
+            date: startTime.split('T')[0],
+            startTime,
+            endTime,
+            operations
+          });
+        }
+      }
+    }
+  }
+
+  return sessions;
+}
+
+// Compute all productivity metrics
+async function computeProductivityMetrics() {
+  const sessions = await extractAllSessions();
+
+  // Get stats for model usage
+  const statsPath = path.join(CLAUDE_DIR, 'stats-cache.json');
+  let stats = {};
+  if (fs.existsSync(statsPath)) {
+    stats = JSON.parse(fs.readFileSync(statsPath, 'utf8'));
+  }
+
+  const velocity = computeVelocityMetrics(sessions);
+  const efficiency = computeEfficiencyMetrics(sessions, stats.modelUsage);
+  const patterns = computePatternMetrics(sessions, stats.dailyActivity);
+  const toolUsage = computeToolUsageMetrics(sessions);
+
+  // Summary
+  const summary = {
+    totalActiveDays: patterns.totalActiveDays,
+    mostProductiveDay: patterns.productivityByDayOfWeek.reduce((a, b) => a.total > b.total ? a : b).day,
+    mostProductiveHour: getMostProductiveHour(efficiency.peakHoursHeatmap)
+  };
+
+  return {
+    velocity,
+    efficiency,
+    patterns,
+    toolUsage,
+    summary,
+    computedAt: new Date().toISOString()
+  };
+}
+
+// Helper to find most productive hour from heatmap
+function getMostProductiveHour(heatmap) {
+  let maxCount = 0;
+  let maxHour = 0;
+  const hourTotals = Array(24).fill(0);
+
+  for (let day = 0; day < 7; day++) {
+    for (let hour = 0; hour < 24; hour++) {
+      hourTotals[hour] += heatmap[day][hour];
+    }
+  }
+
+  for (let hour = 0; hour < 24; hour++) {
+    if (hourTotals[hour] > maxCount) {
+      maxCount = hourTotals[hour];
+      maxHour = hour;
+    }
+  }
+
+  return `${maxHour}:00`;
+}
+
+// Productivity metrics endpoint
+app.get('/api/productivity', async (req, res) => {
+  try {
+    // Check if Claude data exists
+    if (!claudeDataExists()) {
+      return res.json({
+        velocity: { filesModifiedByDay: [], linesChangedEstimate: 0, totalCodeOperations: 0, averageOpsPerDay: 0 },
+        efficiency: { peakHoursHeatmap: Array(7).fill(null).map(() => Array(24).fill(0)), sessionDurations: {}, opsPerSession: 0, tokensPerCodeOp: 0 },
+        patterns: { productivityByDayOfWeek: [], currentStreak: 0, longestStreak: 0, focusSessions: 0, mostEditedFiles: [] },
+        toolUsage: { distribution: {}, readWriteRatio: 0, ratioInsight: '', trends: [] },
+        summary: { totalActiveDays: 0, mostProductiveDay: 'N/A', mostProductiveHour: 'N/A' },
+        computedAt: new Date().toISOString(),
+        message: 'No Claude Code data found. Start using Claude Code to see your productivity metrics!'
+      });
+    }
+
+    // Check cache (skip if refresh requested)
+    const forceRefresh = req.query.refresh === '1';
+    const now = Date.now();
+    if (!forceRefresh && productivityCache.data && (now - productivityCache.timestamp) < productivityCache.TTL) {
+      return res.json(productivityCache.data);
+    }
+
+    const metrics = await computeProductivityMetrics();
+
+    // Cache results
+    productivityCache = {
+      data: metrics,
+      timestamp: now,
+      TTL: productivityCache.TTL
+    };
+
+    res.json(metrics);
+  } catch (error) {
+    console.error('Productivity metrics error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get FAQ/Help content
 app.get('/api/help', (req, res) => {
   const help = {

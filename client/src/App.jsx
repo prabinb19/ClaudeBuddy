@@ -80,6 +80,12 @@ function App() {
             >
               mcp
             </button>
+            <button
+              className={activeTab === 'productivity' ? 'active' : ''}
+              onClick={() => setActiveTab('productivity')}
+            >
+              productivity
+            </button>
           </nav>
         </div>
       </header>
@@ -99,6 +105,9 @@ function App() {
         )}
         {activeTab === 'mcp' && (
           <MCPTab />
+        )}
+        {activeTab === 'productivity' && (
+          <ProductivityTab />
         )}
       </main>
     </div>
@@ -1156,6 +1165,427 @@ function MCPTab() {
       {results.length === 0 && (
         <div className="mcp-empty">
           {search ? `No servers found matching "${search}"` : 'No servers found in this category'}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ProductivityTab() {
+  const [activeSection, setActiveSection] = useState('velocity')
+  const [productivity, setProductivity] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+
+  useEffect(() => {
+    fetchProductivity()
+  }, [])
+
+  async function fetchProductivity(forceRefresh = false) {
+    try {
+      if (forceRefresh) setRefreshing(true)
+      const url = forceRefresh ? `${API_BASE}/productivity?refresh=1` : `${API_BASE}/productivity`
+      const res = await fetch(url)
+      const data = await res.json()
+      setProductivity(data)
+    } catch (error) {
+      console.error('Failed to fetch productivity:', error)
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }
+
+  const formatNumber = (num) => {
+    if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`
+    if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`
+    return num?.toString() || '0'
+  }
+
+  if (loading) {
+    return (
+      <div className="productivity">
+        <div className="productivity-loading">Loading productivity metrics...</div>
+      </div>
+    )
+  }
+
+  // Check for empty state
+  if (productivity?.message) {
+    return (
+      <div className="productivity">
+        <div className="productivity-empty">
+          <h2>Productivity Analytics</h2>
+          <p>{productivity.message}</p>
+        </div>
+      </div>
+    )
+  }
+
+  const { velocity, efficiency, patterns, toolUsage, summary } = productivity || {}
+
+  return (
+    <div className="productivity">
+      <div className="productivity-header">
+        <div className="productivity-nav">
+          {['velocity', 'efficiency', 'patterns', 'tools'].map(section => (
+            <button
+              key={section}
+              className={`productivity-nav-btn ${activeSection === section ? 'active' : ''}`}
+              onClick={() => setActiveSection(section)}
+            >
+              {section}
+            </button>
+          ))}
+        </div>
+        <button
+          className={`productivity-refresh-btn ${refreshing ? 'refreshing' : ''}`}
+          onClick={() => fetchProductivity(true)}
+          disabled={refreshing}
+        >
+          {refreshing ? '↻ Refreshing...' : '↻ Refresh'}
+        </button>
+      </div>
+
+      {/* Summary bar */}
+      <div className="productivity-summary">
+        <span className="summary-item">
+          <span className="summary-label">Active Days:</span>
+          <span className="summary-value">{summary?.totalActiveDays || 0}</span>
+        </span>
+        <span className="summary-item">
+          <span className="summary-label">Best Day:</span>
+          <span className="summary-value">{summary?.mostProductiveDay || 'N/A'}</span>
+        </span>
+        <span className="summary-item">
+          <span className="summary-label">Peak Hour:</span>
+          <span className="summary-value">{summary?.mostProductiveHour || 'N/A'}</span>
+        </span>
+        <span className="summary-item">
+          <span className="summary-label">Current Streak:</span>
+          <span className="summary-value streak">{patterns?.currentStreak || 0} days</span>
+        </span>
+      </div>
+
+      {/* Velocity Section */}
+      {activeSection === 'velocity' && (
+        <div className="productivity-section">
+          <h2>Coding Velocity</h2>
+
+          <div className="velocity-stats">
+            <div className="velocity-stat">
+              <span className="velocity-value">{velocity?.totalCodeOperations || 0}</span>
+              <span className="velocity-label">Total Code Ops</span>
+            </div>
+            <div className="velocity-stat">
+              <span className="velocity-value">{velocity?.totalWrites || 0}</span>
+              <span className="velocity-label">Files Written</span>
+            </div>
+            <div className="velocity-stat">
+              <span className="velocity-value">{velocity?.totalEdits || 0}</span>
+              <span className="velocity-label">Edits Made</span>
+            </div>
+            <div className="velocity-stat">
+              <span className="velocity-value">{formatNumber(velocity?.linesChangedEstimate || 0)}</span>
+              <span className="velocity-label">Lines Changed</span>
+            </div>
+            <div className="velocity-stat highlight">
+              <span className="velocity-value">{velocity?.averageOpsPerDay || 0}</span>
+              <span className="velocity-label">Avg Ops/Day</span>
+            </div>
+          </div>
+
+          {/* Operations Trend Chart */}
+          {velocity?.operationsTrend?.length > 0 && (
+            <div className="chart-container">
+              <h3>Operations Trend (Last 14 Days)</h3>
+              <div className="velocity-chart">
+                <div className="velocity-chart-bars">
+                  {velocity.operationsTrend.map((day, i) => {
+                    const maxOps = Math.max(...velocity.operationsTrend.map(d => d.total), 1)
+                    const writeHeight = (day.writes / maxOps) * 100
+                    const editHeight = (day.edits / maxOps) * 100
+                    return (
+                      <div key={i} className="velocity-bar-group" title={`${day.date}: ${day.writes} writes, ${day.edits} edits`}>
+                        <div className="velocity-bar-stack">
+                          <div className="velocity-bar writes" style={{ height: `${writeHeight}%` }} />
+                          <div className="velocity-bar edits" style={{ height: `${editHeight}%` }} />
+                        </div>
+                        <span className="velocity-bar-label">{day.date.slice(5)}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+                <div className="velocity-chart-legend">
+                  <span className="legend-item writes">Writes</span>
+                  <span className="legend-item edits">Edits</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Files Modified Chart */}
+          {velocity?.filesModifiedByDay?.length > 0 && (
+            <div className="chart-container">
+              <h3>Files Modified Per Day</h3>
+              <div className="files-chart">
+                {velocity.filesModifiedByDay.slice(-14).map((day, i) => {
+                  const maxFiles = Math.max(...velocity.filesModifiedByDay.slice(-14).map(d => d.count), 1)
+                  return (
+                    <div key={i} className="files-bar-group">
+                      <div
+                        className="files-bar"
+                        style={{ width: `${(day.count / maxFiles) * 100}%` }}
+                        title={`${day.count} files`}
+                      >
+                        <span className="files-bar-value">{day.count}</span>
+                      </div>
+                      <span className="files-bar-label">{day.date.slice(5)}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Efficiency Section */}
+      {activeSection === 'efficiency' && (
+        <div className="productivity-section">
+          <h2>Efficiency Analysis</h2>
+
+          <div className="efficiency-stats">
+            <div className="efficiency-stat">
+              <span className="efficiency-value">{efficiency?.opsPerSession || 0}</span>
+              <span className="efficiency-label">Ops per Session</span>
+            </div>
+            <div className="efficiency-stat">
+              <span className="efficiency-value">{formatNumber(efficiency?.tokensPerCodeOp || 0)}</span>
+              <span className="efficiency-label">Tokens per Code Op</span>
+            </div>
+            <div className="efficiency-stat">
+              <span className="efficiency-value">{formatNumber(efficiency?.totalTokens || 0)}</span>
+              <span className="efficiency-label">Total Tokens</span>
+            </div>
+          </div>
+
+          {/* Peak Hours Heatmap */}
+          <div className="chart-container">
+            <h3>Peak Activity Hours</h3>
+            <div className="heatmap-container">
+              <div className="heatmap-hours">
+                {[0, 6, 12, 18, 23].map(h => (
+                  <span key={h} className="heatmap-hour-label">{h}:00</span>
+                ))}
+              </div>
+              <div className="heatmap">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, dayIndex) => (
+                  <div key={day} className="heatmap-row">
+                    <span className="heatmap-day">{day}</span>
+                    <div className="heatmap-cells">
+                      {(efficiency?.peakHoursHeatmap?.[dayIndex] || Array(24).fill(0)).map((count, hour) => {
+                        const maxCount = Math.max(...(efficiency?.peakHoursHeatmap?.flat() || [0]), 1)
+                        const intensity = count / maxCount
+                        return (
+                          <div
+                            key={hour}
+                            className="heatmap-cell"
+                            style={{
+                              backgroundColor: count > 0
+                                ? `rgba(107, 179, 240, ${0.2 + intensity * 0.8})`
+                                : 'var(--bg-tertiary)'
+                            }}
+                            title={`${day} ${hour}:00 - ${count} operations`}
+                          />
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Session Duration Distribution */}
+          <div className="chart-container">
+            <h3>Session Duration Distribution</h3>
+            <div className="duration-chart">
+              {Object.entries(efficiency?.sessionDurations || {}).map(([bucket, count]) => {
+                const maxCount = Math.max(...Object.values(efficiency?.sessionDurations || {}), 1)
+                const labels = {
+                  '0-15': '< 15 min',
+                  '15-30': '15-30 min',
+                  '30-60': '30-60 min',
+                  '60+': '> 60 min'
+                }
+                return (
+                  <div key={bucket} className="duration-bar-group">
+                    <span className="duration-label">{labels[bucket]}</span>
+                    <div className="duration-bar-container">
+                      <div
+                        className="duration-bar"
+                        style={{ width: `${(count / maxCount) * 100}%` }}
+                      />
+                      <span className="duration-count">{count}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Patterns Section */}
+      {activeSection === 'patterns' && (
+        <div className="productivity-section">
+          <h2>Work Patterns</h2>
+
+          <div className="patterns-stats">
+            <div className="streak-card current">
+              <span className="streak-value">{patterns?.currentStreak || 0}</span>
+              <span className="streak-label">Current Streak</span>
+              <span className="streak-unit">consecutive days</span>
+            </div>
+            <div className="streak-card longest">
+              <span className="streak-value">{patterns?.longestStreak || 0}</span>
+              <span className="streak-label">Longest Streak</span>
+              <span className="streak-unit">days</span>
+            </div>
+            <div className="streak-card focus">
+              <span className="streak-value">{patterns?.focusSessions || 0}</span>
+              <span className="streak-label">Focus Sessions</span>
+              <span className="streak-unit">&gt;30 min sustained</span>
+            </div>
+          </div>
+
+          {/* Productivity by Day of Week */}
+          <div className="chart-container">
+            <h3>Productivity by Day of Week</h3>
+            <div className="dayofweek-chart">
+              {(patterns?.productivityByDayOfWeek || []).map((day, i) => {
+                const maxTotal = Math.max(...(patterns?.productivityByDayOfWeek || []).map(d => d.total), 1)
+                return (
+                  <div key={i} className="dayofweek-bar-group">
+                    <span className="dayofweek-label">{day.day}</span>
+                    <div className="dayofweek-bar-container">
+                      <div
+                        className="dayofweek-bar"
+                        style={{ height: `${(day.total / maxTotal) * 100}%` }}
+                        title={`${day.total} total operations`}
+                      />
+                    </div>
+                    <span className="dayofweek-value">{day.total}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Most Edited Files */}
+          {patterns?.mostEditedFiles?.length > 0 && (
+            <div className="chart-container">
+              <h3>Hot Spots (Most Edited Files)</h3>
+              <div className="hotspots-list">
+                {patterns.mostEditedFiles.map((file, i) => {
+                  const maxCount = patterns.mostEditedFiles[0]?.count || 1
+                  return (
+                    <div key={i} className="hotspot-item">
+                      <span className="hotspot-rank">#{i + 1}</span>
+                      <div className="hotspot-info">
+                        <span className="hotspot-name">{file.name}</span>
+                        <span className="hotspot-path">{file.path}</span>
+                      </div>
+                      <div className="hotspot-bar-container">
+                        <div
+                          className="hotspot-bar"
+                          style={{ width: `${(file.count / maxCount) * 100}%` }}
+                        />
+                      </div>
+                      <span className="hotspot-count">{file.count}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tools Section */}
+      {activeSection === 'tools' && (
+        <div className="productivity-section">
+          <h2>Tool Usage</h2>
+
+          {/* Read:Write Ratio Highlight */}
+          <div className="ratio-highlight">
+            <div className="ratio-value">
+              <span className="ratio-number">{toolUsage?.readWriteRatio || 0}</span>
+              <span className="ratio-label">Read : Write Ratio</span>
+            </div>
+            <div className="ratio-insight">{toolUsage?.ratioInsight || ''}</div>
+          </div>
+
+          {/* Tool Distribution */}
+          <div className="chart-container">
+            <h3>Tool Distribution</h3>
+            <div className="tool-distribution">
+              {Object.entries(toolUsage?.distribution || {}).map(([tool, count]) => {
+                const total = Object.values(toolUsage?.distribution || {}).reduce((a, b) => a + b, 0) || 1
+                const percentage = ((count / total) * 100).toFixed(1)
+                const maxCount = Math.max(...Object.values(toolUsage?.distribution || {}), 1)
+                const toolColors = {
+                  Write: 'var(--accent-green)',
+                  Edit: 'var(--accent-orange)',
+                  Read: 'var(--accent-blue)',
+                  Bash: 'var(--accent-purple)',
+                  Glob: 'var(--accent-cyan)',
+                  Grep: 'var(--accent-red)'
+                }
+                return (
+                  <div key={tool} className="tool-bar-group">
+                    <span className="tool-name">{tool}</span>
+                    <div className="tool-bar-container">
+                      <div
+                        className="tool-bar"
+                        style={{
+                          width: `${(count / maxCount) * 100}%`,
+                          backgroundColor: toolColors[tool] || 'var(--accent-blue)'
+                        }}
+                      />
+                    </div>
+                    <span className="tool-count">{formatNumber(count)}</span>
+                    <span className="tool-percentage">{percentage}%</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Tool Usage Trends */}
+          {toolUsage?.trends?.length > 0 && (
+            <div className="chart-container">
+              <h3>Tool Usage Trends (Last 14 Days)</h3>
+              <div className="tool-trends">
+                <div className="tool-trends-header">
+                  <span className="trend-date-header">Date</span>
+                  {['Write', 'Edit', 'Read', 'Bash'].map(tool => (
+                    <span key={tool} className={`trend-tool-header ${tool.toLowerCase()}`}>{tool}</span>
+                  ))}
+                </div>
+                {toolUsage.trends.map((day, i) => (
+                  <div key={i} className="tool-trend-row">
+                    <span className="trend-date">{day.date.slice(5)}</span>
+                    <span className="trend-value write">{day.Write || 0}</span>
+                    <span className="trend-value edit">{day.Edit || 0}</span>
+                    <span className="trend-value read">{day.Read || 0}</span>
+                    <span className="trend-value bash">{day.Bash || 0}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
