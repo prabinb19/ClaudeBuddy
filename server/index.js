@@ -1513,6 +1513,595 @@ app.get('/api/productivity', async (req, res) => {
   }
 });
 
+// ============================================
+// INSIGHTS TAB - Helper Functions & Endpoints
+// ============================================
+
+// Insights cache (5 min TTL)
+let insightsCache = {
+  daily: { data: null, timestamp: 0 },
+  errors: { data: null, timestamp: 0 },
+  tasks: { data: null, timestamp: 0 },
+  TTL: 1000 * 60 * 5
+};
+
+// Extract user messages from raw session messages
+function extractUserMessages(rawMessages) {
+  return rawMessages
+    .filter(m => m.type === 'user' || m.message?.role === 'user')
+    .map(m => {
+      const content = typeof m.message?.content === 'string'
+        ? m.message.content
+        : m.message?.content?.[0]?.text || '';
+      return {
+        text: content,
+        timestamp: m.timestamp,
+        firstLine: content.split('\n')[0].substring(0, 60)
+      };
+    })
+    .filter(m => m.text);
+}
+
+// Compute daily summary for a given date
+async function computeDailySummary(targetDate) {
+  const sessions = await extractAllSessions();
+
+  // Filter sessions for the target date
+  const daySessions = sessions.filter(s => s.date === targetDate);
+
+  if (daySessions.length === 0) {
+    return null;
+  }
+
+  // Collect all files modified
+  const filesModified = new Set();
+  const operationCounts = { writes: 0, edits: 0, bash: 0, total: 0 };
+  let totalActiveMinutes = 0;
+
+  // Topic extraction: group operations by user prompt sequence
+  const topics = [];
+
+  for (const session of daySessions) {
+    // Calculate session duration
+    if (session.startTime && session.endTime) {
+      const duration = (new Date(session.endTime) - new Date(session.startTime)) / 1000 / 60;
+      totalActiveMinutes += Math.min(duration, 180); // Cap at 3 hours per session
+    }
+
+    // Load full session for topic extraction
+    const sessionPath = path.join(CLAUDE_DIR, 'projects', session.project, `${session.id}.jsonl`);
+    if (fs.existsSync(sessionPath)) {
+      const rawMessages = await parseJSONL(sessionPath);
+      const userMessages = extractUserMessages(rawMessages);
+
+      // Group operations by user prompt
+      let currentTopic = null;
+      let currentOps = [];
+      let currentFiles = new Set();
+
+      for (const msg of rawMessages) {
+        if (msg.type === 'user' || msg.message?.role === 'user') {
+          // Save previous topic
+          if (currentTopic && currentOps.length > 0) {
+            topics.push({
+              topic: currentTopic,
+              operationCount: currentOps.length,
+              filesInvolved: Array.from(currentFiles)
+            });
+          }
+
+          const content = typeof msg.message?.content === 'string'
+            ? msg.message.content
+            : msg.message?.content?.[0]?.text || '';
+          currentTopic = content.split('\n')[0].substring(0, 60);
+          if (content.length > 60) currentTopic += '...';
+          currentOps = [];
+          currentFiles = new Set();
+        }
+
+        if (msg.type === 'assistant' || msg.message?.role === 'assistant') {
+          const toolCalls = extractToolCalls(msg.message);
+          for (const tool of toolCalls) {
+            if (tool.name === 'Write') {
+              operationCounts.writes++;
+              operationCounts.total++;
+              currentOps.push('write');
+              if (tool.input?.file_path) {
+                filesModified.add(tool.input.file_path.split('/').pop());
+                currentFiles.add(tool.input.file_path.split('/').pop());
+              }
+            } else if (tool.name === 'Edit') {
+              operationCounts.edits++;
+              operationCounts.total++;
+              currentOps.push('edit');
+              if (tool.input?.file_path) {
+                filesModified.add(tool.input.file_path.split('/').pop());
+                currentFiles.add(tool.input.file_path.split('/').pop());
+              }
+            } else if (tool.name === 'Bash') {
+              operationCounts.bash++;
+              operationCounts.total++;
+              currentOps.push('bash');
+            }
+          }
+        }
+      }
+
+      // Don't forget last topic
+      if (currentTopic && currentOps.length > 0) {
+        topics.push({
+          topic: currentTopic,
+          operationCount: currentOps.length,
+          filesInvolved: Array.from(currentFiles)
+        });
+      }
+    }
+  }
+
+  // Merge duplicate topics
+  const topicMap = new Map();
+  for (const t of topics) {
+    if (topicMap.has(t.topic)) {
+      const existing = topicMap.get(t.topic);
+      existing.operationCount += t.operationCount;
+      t.filesInvolved.forEach(f => existing.filesInvolved.add(f));
+    } else {
+      topicMap.set(t.topic, {
+        topic: t.topic,
+        operationCount: t.operationCount,
+        filesInvolved: new Set(t.filesInvolved)
+      });
+    }
+  }
+
+  const mergedTopics = Array.from(topicMap.values())
+    .map(t => ({
+      topic: t.topic,
+      operationCount: t.operationCount,
+      filesInvolved: Array.from(t.filesInvolved)
+    }))
+    .sort((a, b) => b.operationCount - a.operationCount)
+    .slice(0, 10); // Limit to top 10 topics
+
+  return {
+    sessionCount: daySessions.length,
+    activeMinutes: Math.round(totalActiveMinutes),
+    filesModified: Array.from(filesModified),
+    operationCounts,
+    topics: mergedTopics
+  };
+}
+
+// Detect struggle files (5+ edits on same file in one session)
+function detectStruggleFiles(sessions) {
+  const struggleFiles = [];
+
+  for (const session of sessions) {
+    const fileEditCounts = {};
+
+    for (const op of session.operations) {
+      if (op.type === 'edit' && op.filePath) {
+        const fileName = op.filePath.split('/').pop();
+        if (!fileEditCounts[fileName]) {
+          fileEditCounts[fileName] = { count: 0, path: op.filePath };
+        }
+        fileEditCounts[fileName].count++;
+      }
+    }
+
+    for (const [fileName, data] of Object.entries(fileEditCounts)) {
+      if (data.count >= 5) {
+        let severity = 'low';
+        if (data.count >= 10) severity = 'high';
+        else if (data.count >= 7) severity = 'medium';
+
+        struggleFiles.push({
+          fileName,
+          filePath: data.path,
+          editCount: data.count,
+          severity,
+          date: session.date,
+          sessionId: session.id
+        });
+      }
+    }
+  }
+
+  return struggleFiles.sort((a, b) => b.editCount - a.editCount).slice(0, 20);
+}
+
+// Detect repeated consecutive commands (3+ times)
+function detectRepeatedCommands(sessions) {
+  const repeatedCommands = [];
+
+  for (const session of sessions) {
+    const bashOps = session.operations.filter(op => op.type === 'bash' && op.command);
+
+    let currentCmd = null;
+    let count = 0;
+
+    for (const op of bashOps) {
+      const cmd = op.command?.split(' ')[0] || op.command; // Get first word of command
+      if (cmd === currentCmd) {
+        count++;
+      } else {
+        if (count >= 3 && currentCmd) {
+          repeatedCommands.push({
+            command: currentCmd,
+            occurrences: count,
+            note: `Ran ${count} times in succession`,
+            date: session.date
+          });
+        }
+        currentCmd = cmd;
+        count = 1;
+      }
+    }
+
+    // Check last command
+    if (count >= 3 && currentCmd) {
+      repeatedCommands.push({
+        command: currentCmd,
+        occurrences: count,
+        note: `Ran ${count} times in succession`,
+        date: session.date
+      });
+    }
+  }
+
+  return repeatedCommands.sort((a, b) => b.occurrences - a.occurrences).slice(0, 10);
+}
+
+// Detect error mentions in user prompts
+async function detectErrorMentions(sessions) {
+  const errorKeywords = ['error', 'not working', 'failing', 'broken', 'bug', 'crash', 'fix', 'issue', 'problem', 'wrong'];
+  const errorMentions = {};
+
+  for (const session of sessions) {
+    const sessionPath = path.join(CLAUDE_DIR, 'projects', session.project, `${session.id}.jsonl`);
+    if (!fs.existsSync(sessionPath)) continue;
+
+    const rawMessages = await parseJSONL(sessionPath);
+    const userMessages = extractUserMessages(rawMessages);
+
+    for (const msg of userMessages) {
+      const textLower = msg.text.toLowerCase();
+      for (const keyword of errorKeywords) {
+        if (textLower.includes(keyword)) {
+          if (!errorMentions[keyword]) {
+            errorMentions[keyword] = { keyword, count: 0, samplePrompts: [] };
+          }
+          errorMentions[keyword].count++;
+          if (errorMentions[keyword].samplePrompts.length < 3) {
+            errorMentions[keyword].samplePrompts.push(msg.firstLine);
+          }
+        }
+      }
+    }
+  }
+
+  return Object.values(errorMentions)
+    .filter(e => e.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8);
+}
+
+// Detect thrashing sessions (many ops, few files, short time)
+function detectThrashingSessions(sessions) {
+  const thrashingSessions = [];
+
+  for (const session of sessions) {
+    if (!session.startTime || !session.endTime) continue;
+
+    const duration = (new Date(session.endTime) - new Date(session.startTime)) / 1000 / 60;
+    const codeOps = session.operations.filter(op => op.type === 'write' || op.type === 'edit');
+    const uniqueFiles = new Set(codeOps.map(op => op.filePath).filter(Boolean));
+
+    // Thrashing: 20+ ops on ≤3 files in <30 min
+    if (codeOps.length >= 20 && uniqueFiles.size <= 3 && duration < 30) {
+      thrashingSessions.push({
+        operationCount: codeOps.length,
+        uniqueFilesCount: uniqueFiles.size,
+        duration: Math.round(duration),
+        date: session.date,
+        sessionId: session.id,
+        files: Array.from(uniqueFiles).map(f => f?.split('/').pop())
+      });
+    }
+  }
+
+  return thrashingSessions.slice(0, 10);
+}
+
+// Find related sessions for task grouping
+function findRelatedSessions(baseSession, allSessions) {
+  const related = [];
+  const baseFiles = new Set(
+    baseSession.operations
+      .filter(op => op.filePath)
+      .map(op => op.filePath)
+  );
+
+  for (const session of allSessions) {
+    if (session.id === baseSession.id) continue;
+
+    // File overlap (40% weight)
+    const sessionFiles = new Set(
+      session.operations
+        .filter(op => op.filePath)
+        .map(op => op.filePath)
+    );
+    const fileOverlap = [...baseFiles].filter(f => sessionFiles.has(f)).length;
+    const fileScore = baseFiles.size > 0 ? (fileOverlap / baseFiles.size) * 40 : 0;
+
+    // Time proximity (30% weight) - within 2 hours
+    let timeScore = 0;
+    if (baseSession.startTime && session.startTime) {
+      const timeDiff = Math.abs(new Date(baseSession.startTime) - new Date(session.startTime)) / 1000 / 60 / 60;
+      if (timeDiff <= 2) {
+        timeScore = (1 - timeDiff / 2) * 30;
+      }
+    }
+
+    // Same date bonus (20% weight)
+    const dateScore = baseSession.date === session.date ? 20 : 0;
+
+    const totalScore = fileScore + timeScore + dateScore;
+
+    if (totalScore >= 50) {
+      related.push({ session, score: totalScore });
+    }
+  }
+
+  return related.sort((a, b) => b.score - a.score).map(r => r.session);
+}
+
+// Infer task name from sessions
+async function inferTaskName(sessions) {
+  const actionVerbs = ['add', 'create', 'fix', 'update', 'implement', 'build', 'make', 'write', 'refactor', 'test', 'debug'];
+
+  for (const session of sessions) {
+    const sessionPath = path.join(CLAUDE_DIR, 'projects', session.project, `${session.id}.jsonl`);
+    if (!fs.existsSync(sessionPath)) continue;
+
+    const rawMessages = await parseJSONL(sessionPath);
+    const userMessages = extractUserMessages(rawMessages);
+
+    for (const msg of userMessages) {
+      const firstWord = msg.text.toLowerCase().split(/\s+/)[0];
+      if (actionVerbs.includes(firstWord)) {
+        return {
+          name: msg.firstLine,
+          inferredFrom: 'prompt'
+        };
+      }
+    }
+  }
+
+  // Fallback: dominant file being edited
+  const fileCounts = {};
+  for (const session of sessions) {
+    for (const op of session.operations) {
+      if ((op.type === 'write' || op.type === 'edit') && op.filePath) {
+        const fileName = op.filePath.split('/').pop();
+        fileCounts[fileName] = (fileCounts[fileName] || 0) + 1;
+      }
+    }
+  }
+
+  const dominantFile = Object.entries(fileCounts).sort((a, b) => b[1] - a[1])[0];
+  if (dominantFile) {
+    return {
+      name: `${dominantFile[0]} work`,
+      inferredFrom: 'file'
+    };
+  }
+
+  return { name: 'Unnamed task', inferredFrom: 'fallback' };
+}
+
+// Group sessions into tasks
+async function groupSessionsIntoTasks(sessions) {
+  const tasks = [];
+  const assigned = new Set();
+
+  // Sort sessions by date (most recent first)
+  const sortedSessions = [...sessions].sort((a, b) =>
+    new Date(b.startTime || b.date) - new Date(a.startTime || a.date)
+  );
+
+  for (const session of sortedSessions) {
+    if (assigned.has(session.id)) continue;
+
+    const relatedSessions = [session];
+    assigned.add(session.id);
+
+    // Find related sessions
+    const related = findRelatedSessions(session, sortedSessions.filter(s => !assigned.has(s.id)));
+    for (const relSession of related) {
+      relatedSessions.push(relSession);
+      assigned.add(relSession.id);
+    }
+
+    // Compute task metrics
+    const allFiles = new Set();
+    let totalMinutes = 0;
+    let startDate = session.date;
+    let endDate = session.date;
+
+    for (const s of relatedSessions) {
+      if (s.startTime && s.endTime) {
+        totalMinutes += (new Date(s.endTime) - new Date(s.startTime)) / 1000 / 60;
+      }
+      for (const op of s.operations) {
+        if (op.filePath) {
+          allFiles.add(op.filePath.split('/').pop());
+        }
+      }
+      if (s.date < startDate) startDate = s.date;
+      if (s.date > endDate) endDate = s.date;
+    }
+
+    const taskName = await inferTaskName(relatedSessions);
+
+    tasks.push({
+      id: `task-${tasks.length + 1}`,
+      name: taskName.name,
+      inferredFrom: taskName.inferredFrom,
+      sessionCount: relatedSessions.length,
+      totalMinutes: Math.round(totalMinutes),
+      filesInvolved: Array.from(allFiles),
+      dateRange: { start: startDate, end: endDate }
+    });
+  }
+
+  return tasks;
+}
+
+// Daily Summary endpoint
+app.get('/api/insights/daily', async (req, res) => {
+  try {
+    const forceRefresh = req.query.refresh === '1';
+    const targetDate = req.query.date || new Date().toISOString().split('T')[0];
+
+    // Format display date
+    const dateObj = new Date(targetDate + 'T12:00:00');
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    let displayDate;
+    if (targetDate === today.toISOString().split('T')[0]) {
+      displayDate = `Today (${dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`;
+    } else if (targetDate === yesterday.toISOString().split('T')[0]) {
+      displayDate = `Yesterday (${dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`;
+    } else {
+      displayDate = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    }
+
+    const summary = await computeDailySummary(targetDate);
+
+    // Get available dates for navigation
+    const allSessions = await extractAllSessions();
+    const allDates = [...new Set(allSessions.map(s => s.date))].sort();
+    const currentIndex = allDates.indexOf(targetDate);
+
+    const result = {
+      date: targetDate,
+      displayDate,
+      summary: summary || {
+        sessionCount: 0,
+        activeMinutes: 0,
+        filesModified: [],
+        operationCounts: { writes: 0, edits: 0, bash: 0, total: 0 },
+        topics: []
+      },
+      navigation: {
+        hasPrevious: currentIndex > 0 || (currentIndex === -1 && allDates.length > 0),
+        previousDate: currentIndex > 0 ? allDates[currentIndex - 1] : (allDates.length > 0 ? allDates[allDates.length - 1] : null),
+        hasNext: currentIndex >= 0 && currentIndex < allDates.length - 1,
+        nextDate: currentIndex >= 0 && currentIndex < allDates.length - 1 ? allDates[currentIndex + 1] : null
+      }
+    };
+
+    res.json(result);
+  } catch (error) {
+    console.error('Daily insights error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Error Patterns endpoint
+app.get('/api/insights/errors', async (req, res) => {
+  try {
+    const forceRefresh = req.query.refresh === '1';
+    const days = parseInt(req.query.days) || 7;
+    const now = Date.now();
+
+    // Check cache
+    if (!forceRefresh && insightsCache.errors.data &&
+        (now - insightsCache.errors.timestamp) < insightsCache.TTL) {
+      return res.json(insightsCache.errors.data);
+    }
+
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - days);
+    const cutoffStr = cutoffDate.toISOString().split('T')[0];
+
+    const allSessions = await extractAllSessions();
+    const recentSessions = allSessions.filter(s => s.date >= cutoffStr);
+
+    const struggleFiles = detectStruggleFiles(recentSessions);
+    const repeatedCommands = detectRepeatedCommands(recentSessions);
+    const errorMentions = await detectErrorMentions(recentSessions);
+    const thrashingSessions = detectThrashingSessions(recentSessions);
+
+    const result = {
+      period: `Last ${days} days`,
+      patterns: {
+        struggleFiles,
+        repeatedCommands,
+        errorMentions,
+        thrashingSessions
+      }
+    };
+
+    // Cache
+    insightsCache.errors = { data: result, timestamp: now };
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error patterns insight error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Time-on-Task endpoint
+app.get('/api/insights/tasks', async (req, res) => {
+  try {
+    const forceRefresh = req.query.refresh === '1';
+    const days = parseInt(req.query.days) || 30;
+    const now = Date.now();
+
+    // Check cache
+    if (!forceRefresh && insightsCache.tasks.data &&
+        (now - insightsCache.tasks.timestamp) < insightsCache.TTL) {
+      return res.json(insightsCache.tasks.data);
+    }
+
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - days);
+    const cutoffStr = cutoffDate.toISOString().split('T')[0];
+
+    const allSessions = await extractAllSessions();
+    const recentSessions = allSessions.filter(s => s.date >= cutoffStr);
+
+    const tasks = await groupSessionsIntoTasks(recentSessions);
+
+    const totalTimeMinutes = tasks.reduce((sum, t) => sum + t.totalMinutes, 0);
+    const avgMinutesPerTask = tasks.length > 0 ? Math.round(totalTimeMinutes / tasks.length) : 0;
+
+    const result = {
+      period: `Last ${days} days`,
+      tasks: tasks.slice(0, 50), // Limit to 50 tasks
+      summary: {
+        totalTasks: tasks.length,
+        totalTimeMinutes,
+        avgMinutesPerTask
+      }
+    };
+
+    // Cache
+    insightsCache.tasks = { data: result, timestamp: now };
+
+    res.json(result);
+  } catch (error) {
+    console.error('Tasks insight error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get FAQ/Help content
 app.get('/api/help', (req, res) => {
   const help = {

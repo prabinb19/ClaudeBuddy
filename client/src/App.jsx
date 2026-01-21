@@ -81,10 +81,10 @@ function App() {
               mcp
             </button>
             <button
-              className={activeTab === 'productivity' ? 'active' : ''}
-              onClick={() => setActiveTab('productivity')}
+              className={activeTab === 'insights' ? 'active' : ''}
+              onClick={() => setActiveTab('insights')}
             >
-              productivity
+              insights
             </button>
           </nav>
         </div>
@@ -106,8 +106,8 @@ function App() {
         {activeTab === 'mcp' && (
           <MCPTab />
         )}
-        {activeTab === 'productivity' && (
-          <ProductivityTab />
+        {activeTab === 'insights' && (
+          <InsightsTab />
         )}
       </main>
     </div>
@@ -1171,419 +1171,336 @@ function MCPTab() {
   )
 }
 
-function ProductivityTab() {
-  const [activeSection, setActiveSection] = useState('velocity')
-  const [productivity, setProductivity] = useState(null)
+function InsightsTab() {
+  const [activeSection, setActiveSection] = useState('today')
+  const [dailyData, setDailyData] = useState(null)
+  const [errorsData, setErrorsData] = useState(null)
+  const [tasksData, setTasksData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [currentDate, setCurrentDate] = useState(null)
 
   useEffect(() => {
-    fetchProductivity()
+    fetchDaily()
+    fetchErrors()
+    fetchTasks()
   }, [])
 
-  async function fetchProductivity(forceRefresh = false) {
+  async function fetchDaily(date = null, forceRefresh = false) {
     try {
       if (forceRefresh) setRefreshing(true)
-      const url = forceRefresh ? `${API_BASE}/productivity?refresh=1` : `${API_BASE}/productivity`
-      const res = await fetch(url)
+      const dateParam = date ? `&date=${date}` : ''
+      const refreshParam = forceRefresh ? '?refresh=1' : '?'
+      const res = await fetch(`${API_BASE}/insights/daily${refreshParam}${dateParam}`)
       const data = await res.json()
-      setProductivity(data)
+      setDailyData(data)
+      setCurrentDate(data.date)
     } catch (error) {
-      console.error('Failed to fetch productivity:', error)
+      console.error('Failed to fetch daily insights:', error)
     } finally {
       setLoading(false)
       setRefreshing(false)
     }
   }
 
-  const formatNumber = (num) => {
-    if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`
-    if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`
-    return num?.toString() || '0'
+  async function fetchErrors(forceRefresh = false) {
+    try {
+      const url = forceRefresh ? `${API_BASE}/insights/errors?refresh=1` : `${API_BASE}/insights/errors`
+      const res = await fetch(url)
+      const data = await res.json()
+      setErrorsData(data)
+    } catch (error) {
+      console.error('Failed to fetch error patterns:', error)
+    }
+  }
+
+  async function fetchTasks(forceRefresh = false) {
+    try {
+      const url = forceRefresh ? `${API_BASE}/insights/tasks?refresh=1` : `${API_BASE}/insights/tasks`
+      const res = await fetch(url)
+      const data = await res.json()
+      setTasksData(data)
+    } catch (error) {
+      console.error('Failed to fetch tasks:', error)
+    }
+  }
+
+  const handleRefresh = () => {
+    if (activeSection === 'today') fetchDaily(currentDate, true)
+    else if (activeSection === 'errors') fetchErrors(true)
+    else if (activeSection === 'tasks') fetchTasks(true)
+  }
+
+  const navigateDate = (direction) => {
+    if (!dailyData?.navigation) return
+    const targetDate = direction === 'prev'
+      ? dailyData.navigation.previousDate
+      : dailyData.navigation.nextDate
+    if (targetDate) fetchDaily(targetDate)
+  }
+
+  const formatMinutes = (mins) => {
+    if (mins < 60) return `${mins} min`
+    const hours = Math.floor(mins / 60)
+    const remaining = mins % 60
+    return remaining > 0 ? `${hours}h ${remaining}m` : `${hours}h`
   }
 
   if (loading) {
     return (
-      <div className="productivity">
-        <div className="productivity-loading">Loading productivity metrics...</div>
+      <div className="insights">
+        <div className="insights-loading">Loading insights...</div>
       </div>
     )
   }
-
-  // Check for empty state
-  if (productivity?.message) {
-    return (
-      <div className="productivity">
-        <div className="productivity-empty">
-          <h2>Productivity Analytics</h2>
-          <p>{productivity.message}</p>
-        </div>
-      </div>
-    )
-  }
-
-  const { velocity, efficiency, patterns, toolUsage, summary } = productivity || {}
 
   return (
-    <div className="productivity">
-      <div className="productivity-header">
-        <div className="productivity-nav">
-          {['velocity', 'efficiency', 'patterns', 'tools'].map(section => (
+    <div className="insights">
+      <div className="insights-header">
+        <div className="insights-nav">
+          {[
+            { id: 'today', label: 'today' },
+            { id: 'errors', label: 'errors' },
+            { id: 'tasks', label: 'tasks' }
+          ].map(section => (
             <button
-              key={section}
-              className={`productivity-nav-btn ${activeSection === section ? 'active' : ''}`}
-              onClick={() => setActiveSection(section)}
+              key={section.id}
+              className={`insights-nav-btn ${activeSection === section.id ? 'active' : ''}`}
+              onClick={() => setActiveSection(section.id)}
             >
-              {section}
+              {section.label}
             </button>
           ))}
         </div>
         <button
-          className={`productivity-refresh-btn ${refreshing ? 'refreshing' : ''}`}
-          onClick={() => fetchProductivity(true)}
+          className={`insights-refresh-btn ${refreshing ? 'refreshing' : ''}`}
+          onClick={handleRefresh}
           disabled={refreshing}
         >
-          {refreshing ? '↻ Refreshing...' : '↻ Refresh'}
+          {refreshing ? 'Refreshing...' : 'Refresh'}
         </button>
       </div>
 
-      {/* Summary bar */}
-      <div className="productivity-summary">
-        <span className="summary-item">
-          <span className="summary-label">Active Days:</span>
-          <span className="summary-value">{summary?.totalActiveDays || 0}</span>
-        </span>
-        <span className="summary-item">
-          <span className="summary-label">Best Day:</span>
-          <span className="summary-value">{summary?.mostProductiveDay || 'N/A'}</span>
-        </span>
-        <span className="summary-item">
-          <span className="summary-label">Peak Hour:</span>
-          <span className="summary-value">{summary?.mostProductiveHour || 'N/A'}</span>
-        </span>
-        <span className="summary-item">
-          <span className="summary-label">Current Streak:</span>
-          <span className="summary-value streak">{patterns?.currentStreak || 0} days</span>
-        </span>
-      </div>
-
-      {/* Velocity Section */}
-      {activeSection === 'velocity' && (
-        <div className="productivity-section">
-          <h2>Coding Velocity</h2>
-
-          <div className="velocity-stats">
-            <div className="velocity-stat">
-              <span className="velocity-value">{velocity?.totalCodeOperations || 0}</span>
-              <span className="velocity-label">Total Code Ops</span>
-            </div>
-            <div className="velocity-stat">
-              <span className="velocity-value">{velocity?.totalWrites || 0}</span>
-              <span className="velocity-label">Files Written</span>
-            </div>
-            <div className="velocity-stat">
-              <span className="velocity-value">{velocity?.totalEdits || 0}</span>
-              <span className="velocity-label">Edits Made</span>
-            </div>
-            <div className="velocity-stat">
-              <span className="velocity-value">{formatNumber(velocity?.linesChangedEstimate || 0)}</span>
-              <span className="velocity-label">Lines Changed</span>
-            </div>
-            <div className="velocity-stat highlight">
-              <span className="velocity-value">{velocity?.averageOpsPerDay || 0}</span>
-              <span className="velocity-label">Avg Ops/Day</span>
-            </div>
+      {/* Daily Summary Section */}
+      {activeSection === 'today' && (
+        <div className="insights-section">
+          <div className="daily-header">
+            <button
+              className="date-nav-btn"
+              onClick={() => navigateDate('prev')}
+              disabled={!dailyData?.navigation?.hasPrevious}
+            >
+              prev
+            </button>
+            <h2 className="daily-date">{dailyData?.displayDate || 'Today'}</h2>
+            <button
+              className="date-nav-btn"
+              onClick={() => navigateDate('next')}
+              disabled={!dailyData?.navigation?.hasNext}
+            >
+              next
+            </button>
           </div>
 
-          {/* Operations Trend Chart */}
-          {velocity?.operationsTrend?.length > 0 && (
-            <div className="chart-container">
-              <h3>Operations Trend (Last 14 Days)</h3>
-              <div className="velocity-chart">
-                <div className="velocity-chart-bars">
-                  {velocity.operationsTrend.map((day, i) => {
-                    const maxOps = Math.max(...velocity.operationsTrend.map(d => d.total), 1)
-                    const writeHeight = (day.writes / maxOps) * 100
-                    const editHeight = (day.edits / maxOps) * 100
-                    return (
-                      <div key={i} className="velocity-bar-group" title={`${day.date}: ${day.writes} writes, ${day.edits} edits`}>
-                        <div className="velocity-bar-stack">
-                          <div className="velocity-bar writes" style={{ height: `${writeHeight}%` }} />
-                          <div className="velocity-bar edits" style={{ height: `${editHeight}%` }} />
-                        </div>
-                        <span className="velocity-bar-label">{day.date.slice(5)}</span>
-                      </div>
-                    )
-                  })}
+          {dailyData?.summary?.sessionCount === 0 ? (
+            <div className="insights-empty">
+              <p>No activity recorded for this day.</p>
+              {dailyData?.navigation?.hasPrevious && (
+                <button className="nav-hint-btn" onClick={() => navigateDate('prev')}>
+                  View previous day with activity
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="summary-tree">
+                <div className="tree-item">
+                  <span className="tree-branch">|--</span>
+                  <span className="tree-label">{dailyData?.summary?.sessionCount || 0} sessions</span>
+                  <span className="tree-value">{formatMinutes(dailyData?.summary?.activeMinutes || 0)} active</span>
                 </div>
-                <div className="velocity-chart-legend">
-                  <span className="legend-item writes">Writes</span>
-                  <span className="legend-item edits">Edits</span>
+                <div className="tree-item">
+                  <span className="tree-branch">|--</span>
+                  <span className="tree-label">Files touched:</span>
+                  <span className="tree-value files">
+                    {dailyData?.summary?.filesModified?.slice(0, 5).join(', ') || 'none'}
+                    {(dailyData?.summary?.filesModified?.length || 0) > 5 && ` +${dailyData.summary.filesModified.length - 5} more`}
+                  </span>
+                </div>
+                <div className="tree-item">
+                  <span className="tree-branch">|--</span>
+                  <span className="tree-label">{dailyData?.summary?.operationCounts?.total || 0} code operations</span>
+                  <span className="tree-value ops">
+                    ({dailyData?.summary?.operationCounts?.writes || 0} writes, {dailyData?.summary?.operationCounts?.edits || 0} edits)
+                  </span>
+                </div>
+                <div className="tree-item last">
+                  <span className="tree-branch">`--</span>
+                  <span className="tree-label">Topics worked on:</span>
                 </div>
               </div>
-            </div>
-          )}
 
-          {/* Files Modified Chart */}
-          {velocity?.filesModifiedByDay?.length > 0 && (
-            <div className="chart-container">
-              <h3>Files Modified Per Day</h3>
-              <div className="files-chart">
-                {velocity.filesModifiedByDay.slice(-14).map((day, i) => {
-                  const maxFiles = Math.max(...velocity.filesModifiedByDay.slice(-14).map(d => d.count), 1)
-                  return (
-                    <div key={i} className="files-bar-group">
-                      <div
-                        className="files-bar"
-                        style={{ width: `${(day.count / maxFiles) * 100}%` }}
-                        title={`${day.count} files`}
-                      >
-                        <span className="files-bar-value">{day.count}</span>
-                      </div>
-                      <span className="files-bar-label">{day.date.slice(5)}</span>
+              <div className="topics-list">
+                {(dailyData?.summary?.topics || []).length === 0 ? (
+                  <div className="topic-item empty">No topics detected</div>
+                ) : (
+                  dailyData.summary.topics.map((topic, i) => (
+                    <div key={i} className="topic-item">
+                      <span className="topic-bullet">*</span>
+                      <span className="topic-name">{topic.topic}</span>
+                      <span className="topic-stats">
+                        {topic.operationCount} ops, {topic.filesInvolved?.length || 0} files
+                      </span>
                     </div>
-                  )
-                })}
+                  ))
+                )}
               </div>
-            </div>
+            </>
           )}
         </div>
       )}
 
-      {/* Efficiency Section */}
-      {activeSection === 'efficiency' && (
-        <div className="productivity-section">
-          <h2>Efficiency Analysis</h2>
+      {/* Error Patterns Section */}
+      {activeSection === 'errors' && (
+        <div className="insights-section">
+          <h2 className="section-title">Error Patterns ({errorsData?.period || 'Last 7 days'})</h2>
+          <p className="section-subtitle">Inferred patterns from your coding sessions</p>
 
-          <div className="efficiency-stats">
-            <div className="efficiency-stat">
-              <span className="efficiency-value">{efficiency?.opsPerSession || 0}</span>
-              <span className="efficiency-label">Ops per Session</span>
-            </div>
-            <div className="efficiency-stat">
-              <span className="efficiency-value">{formatNumber(efficiency?.tokensPerCodeOp || 0)}</span>
-              <span className="efficiency-label">Tokens per Code Op</span>
-            </div>
-            <div className="efficiency-stat">
-              <span className="efficiency-value">{formatNumber(efficiency?.totalTokens || 0)}</span>
-              <span className="efficiency-label">Total Tokens</span>
-            </div>
-          </div>
-
-          {/* Peak Hours Heatmap */}
-          <div className="chart-container">
-            <h3>Peak Activity Hours</h3>
-            <div className="heatmap-container">
-              <div className="heatmap-hours">
-                {[0, 6, 12, 18, 23].map(h => (
-                  <span key={h} className="heatmap-hour-label">{h}:00</span>
-                ))}
-              </div>
-              <div className="heatmap">
-                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, dayIndex) => (
-                  <div key={day} className="heatmap-row">
-                    <span className="heatmap-day">{day}</span>
-                    <div className="heatmap-cells">
-                      {(efficiency?.peakHoursHeatmap?.[dayIndex] || Array(24).fill(0)).map((count, hour) => {
-                        const maxCount = Math.max(...(efficiency?.peakHoursHeatmap?.flat() || [0]), 1)
-                        const intensity = count / maxCount
-                        return (
-                          <div
-                            key={hour}
-                            className="heatmap-cell"
-                            style={{
-                              backgroundColor: count > 0
-                                ? `rgba(107, 179, 240, ${0.2 + intensity * 0.8})`
-                                : 'var(--bg-tertiary)'
-                            }}
-                            title={`${day} ${hour}:00 - ${count} operations`}
-                          />
-                        )
-                      })}
-                    </div>
+          {/* Struggle Files */}
+          <div className="pattern-group">
+            <h3 className="pattern-title">Struggle Files (5+ edits in one session)</h3>
+            {(errorsData?.patterns?.struggleFiles || []).length === 0 ? (
+              <div className="pattern-empty">No struggle files detected</div>
+            ) : (
+              <div className="struggle-files">
+                {errorsData.patterns.struggleFiles.map((file, i) => (
+                  <div key={i} className={`struggle-file severity-${file.severity}`}>
+                    <span className="struggle-name">{file.fileName}</span>
+                    <span className="struggle-count">{file.editCount} edits</span>
+                    <span className="struggle-date">{file.date}</span>
+                    <span className={`struggle-badge ${file.severity}`}>{file.severity}</span>
                   </div>
                 ))}
               </div>
-            </div>
+            )}
           </div>
 
-          {/* Session Duration Distribution */}
-          <div className="chart-container">
-            <h3>Session Duration Distribution</h3>
-            <div className="duration-chart">
-              {Object.entries(efficiency?.sessionDurations || {}).map(([bucket, count]) => {
-                const maxCount = Math.max(...Object.values(efficiency?.sessionDurations || {}), 1)
-                const labels = {
-                  '0-15': '< 15 min',
-                  '15-30': '15-30 min',
-                  '30-60': '30-60 min',
-                  '60+': '> 60 min'
-                }
-                return (
-                  <div key={bucket} className="duration-bar-group">
-                    <span className="duration-label">{labels[bucket]}</span>
-                    <div className="duration-bar-container">
-                      <div
-                        className="duration-bar"
-                        style={{ width: `${(count / maxCount) * 100}%` }}
-                      />
-                      <span className="duration-count">{count}</span>
-                    </div>
+          {/* Repeated Commands */}
+          <div className="pattern-group">
+            <h3 className="pattern-title">Repeated Commands (3+ times in succession)</h3>
+            {(errorsData?.patterns?.repeatedCommands || []).length === 0 ? (
+              <div className="pattern-empty">No repeated commands detected</div>
+            ) : (
+              <div className="repeated-commands">
+                {errorsData.patterns.repeatedCommands.map((cmd, i) => (
+                  <div key={i} className="repeated-cmd">
+                    <code className="cmd-name">{cmd.command}</code>
+                    <span className="cmd-note">{cmd.note}</span>
                   </div>
-                )
-              })}
-            </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Error Mentions */}
+          <div className="pattern-group">
+            <h3 className="pattern-title">Error-Related Keywords in Prompts</h3>
+            {(errorsData?.patterns?.errorMentions || []).length === 0 ? (
+              <div className="pattern-empty">No error keywords detected</div>
+            ) : (
+              <div className="error-mentions">
+                {errorsData.patterns.errorMentions.map((mention, i) => (
+                  <div key={i} className="error-mention">
+                    <span className="mention-keyword">"{mention.keyword}"</span>
+                    <span className="mention-count">{mention.count}x</span>
+                    {mention.samplePrompts?.length > 0 && (
+                      <span className="mention-sample" title={mention.samplePrompts.join('\n')}>
+                        e.g. "{mention.samplePrompts[0]?.substring(0, 40)}..."
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Thrashing Sessions */}
+          <div className="pattern-group">
+            <h3 className="pattern-title">Thrashing Sessions (many ops, few files, short time)</h3>
+            {(errorsData?.patterns?.thrashingSessions || []).length === 0 ? (
+              <div className="pattern-empty">No thrashing sessions detected</div>
+            ) : (
+              <div className="thrashing-sessions">
+                {errorsData.patterns.thrashingSessions.map((session, i) => (
+                  <div key={i} className="thrash-session">
+                    <span className="thrash-ops">{session.operationCount} ops</span>
+                    <span className="thrash-files">{session.uniqueFilesCount} files</span>
+                    <span className="thrash-duration">{session.duration} min</span>
+                    <span className="thrash-date">{session.date}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* Patterns Section */}
-      {activeSection === 'patterns' && (
-        <div className="productivity-section">
-          <h2>Work Patterns</h2>
+      {/* Time-on-Task Section */}
+      {activeSection === 'tasks' && (
+        <div className="insights-section">
+          <h2 className="section-title">Time on Task ({tasksData?.period || 'Last 30 days'})</h2>
 
-          <div className="patterns-stats">
-            <div className="streak-card current">
-              <span className="streak-value">{patterns?.currentStreak || 0}</span>
-              <span className="streak-label">Current Streak</span>
-              <span className="streak-unit">consecutive days</span>
+          {/* Summary Bar */}
+          <div className="tasks-summary">
+            <div className="tasks-summary-item">
+              <span className="summary-num">{tasksData?.summary?.totalTasks || 0}</span>
+              <span className="summary-label">tasks</span>
             </div>
-            <div className="streak-card longest">
-              <span className="streak-value">{patterns?.longestStreak || 0}</span>
-              <span className="streak-label">Longest Streak</span>
-              <span className="streak-unit">days</span>
+            <div className="tasks-summary-item">
+              <span className="summary-num">{formatMinutes(tasksData?.summary?.totalTimeMinutes || 0)}</span>
+              <span className="summary-label">total time</span>
             </div>
-            <div className="streak-card focus">
-              <span className="streak-value">{patterns?.focusSessions || 0}</span>
-              <span className="streak-label">Focus Sessions</span>
-              <span className="streak-unit">&gt;30 min sustained</span>
+            <div className="tasks-summary-item">
+              <span className="summary-num">{formatMinutes(tasksData?.summary?.avgMinutesPerTask || 0)}</span>
+              <span className="summary-label">avg per task</span>
             </div>
           </div>
 
-          {/* Productivity by Day of Week */}
-          <div className="chart-container">
-            <h3>Productivity by Day of Week</h3>
-            <div className="dayofweek-chart">
-              {(patterns?.productivityByDayOfWeek || []).map((day, i) => {
-                const maxTotal = Math.max(...(patterns?.productivityByDayOfWeek || []).map(d => d.total), 1)
-                return (
-                  <div key={i} className="dayofweek-bar-group">
-                    <span className="dayofweek-label">{day.day}</span>
-                    <div className="dayofweek-bar-container">
-                      <div
-                        className="dayofweek-bar"
-                        style={{ height: `${(day.total / maxTotal) * 100}%` }}
-                        title={`${day.total} total operations`}
-                      />
-                    </div>
-                    <span className="dayofweek-value">{day.total}</span>
+          {/* Task Cards */}
+          {(tasksData?.tasks || []).length === 0 ? (
+            <div className="insights-empty">
+              <p>No tasks detected yet.</p>
+              <p className="empty-hint">Tasks are grouped from related sessions automatically.</p>
+            </div>
+          ) : (
+            <div className="tasks-list">
+              {tasksData.tasks.map((task, i) => (
+                <div key={task.id} className="task-card">
+                  <div className="task-header">
+                    <span className="task-name">{task.name}</span>
+                    <span className={`task-inferred ${task.inferredFrom}`}>
+                      {task.inferredFrom === 'prompt' ? 'from prompt' : task.inferredFrom === 'file' ? 'from file' : 'inferred'}
+                    </span>
                   </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Most Edited Files */}
-          {patterns?.mostEditedFiles?.length > 0 && (
-            <div className="chart-container">
-              <h3>Hot Spots (Most Edited Files)</h3>
-              <div className="hotspots-list">
-                {patterns.mostEditedFiles.map((file, i) => {
-                  const maxCount = patterns.mostEditedFiles[0]?.count || 1
-                  return (
-                    <div key={i} className="hotspot-item">
-                      <span className="hotspot-rank">#{i + 1}</span>
-                      <div className="hotspot-info">
-                        <span className="hotspot-name">{file.name}</span>
-                        <span className="hotspot-path">{file.path}</span>
-                      </div>
-                      <div className="hotspot-bar-container">
-                        <div
-                          className="hotspot-bar"
-                          style={{ width: `${(file.count / maxCount) * 100}%` }}
-                        />
-                      </div>
-                      <span className="hotspot-count">{file.count}</span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Tools Section */}
-      {activeSection === 'tools' && (
-        <div className="productivity-section">
-          <h2>Tool Usage</h2>
-
-          {/* Read:Write Ratio Highlight */}
-          <div className="ratio-highlight">
-            <div className="ratio-value">
-              <span className="ratio-number">{toolUsage?.readWriteRatio || 0}</span>
-              <span className="ratio-label">Read : Write Ratio</span>
-            </div>
-            <div className="ratio-insight">{toolUsage?.ratioInsight || ''}</div>
-          </div>
-
-          {/* Tool Distribution */}
-          <div className="chart-container">
-            <h3>Tool Distribution</h3>
-            <div className="tool-distribution">
-              {Object.entries(toolUsage?.distribution || {}).map(([tool, count]) => {
-                const total = Object.values(toolUsage?.distribution || {}).reduce((a, b) => a + b, 0) || 1
-                const percentage = ((count / total) * 100).toFixed(1)
-                const maxCount = Math.max(...Object.values(toolUsage?.distribution || {}), 1)
-                const toolColors = {
-                  Write: 'var(--accent-green)',
-                  Edit: 'var(--accent-orange)',
-                  Read: 'var(--accent-blue)',
-                  Bash: 'var(--accent-purple)',
-                  Glob: 'var(--accent-cyan)',
-                  Grep: 'var(--accent-red)'
-                }
-                return (
-                  <div key={tool} className="tool-bar-group">
-                    <span className="tool-name">{tool}</span>
-                    <div className="tool-bar-container">
-                      <div
-                        className="tool-bar"
-                        style={{
-                          width: `${(count / maxCount) * 100}%`,
-                          backgroundColor: toolColors[tool] || 'var(--accent-blue)'
-                        }}
-                      />
-                    </div>
-                    <span className="tool-count">{formatNumber(count)}</span>
-                    <span className="tool-percentage">{percentage}%</span>
+                  <div className="task-meta">
+                    <span className="task-sessions">{task.sessionCount} session{task.sessionCount !== 1 ? 's' : ''}</span>
+                    <span className="task-time">{formatMinutes(task.totalMinutes)}</span>
+                    <span className="task-dates">
+                      {task.dateRange?.start === task.dateRange?.end
+                        ? task.dateRange.start
+                        : `${task.dateRange?.start} - ${task.dateRange?.end}`}
+                    </span>
                   </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Tool Usage Trends */}
-          {toolUsage?.trends?.length > 0 && (
-            <div className="chart-container">
-              <h3>Tool Usage Trends (Last 14 Days)</h3>
-              <div className="tool-trends">
-                <div className="tool-trends-header">
-                  <span className="trend-date-header">Date</span>
-                  {['Write', 'Edit', 'Read', 'Bash'].map(tool => (
-                    <span key={tool} className={`trend-tool-header ${tool.toLowerCase()}`}>{tool}</span>
-                  ))}
+                  <div className="task-files">
+                    {task.filesInvolved?.slice(0, 5).map((file, j) => (
+                      <span key={j} className="task-file">{file}</span>
+                    ))}
+                    {(task.filesInvolved?.length || 0) > 5 && (
+                      <span className="task-file-more">+{task.filesInvolved.length - 5}</span>
+                    )}
+                  </div>
                 </div>
-                {toolUsage.trends.map((day, i) => (
-                  <div key={i} className="tool-trend-row">
-                    <span className="trend-date">{day.date.slice(5)}</span>
-                    <span className="trend-value write">{day.Write || 0}</span>
-                    <span className="trend-value edit">{day.Edit || 0}</span>
-                    <span className="trend-value read">{day.Read || 0}</span>
-                    <span className="trend-value bash">{day.Bash || 0}</span>
-                  </div>
-                ))}
-              </div>
+              ))}
             </div>
           )}
         </div>

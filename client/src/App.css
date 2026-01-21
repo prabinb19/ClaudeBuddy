@@ -3778,3 +3778,760 @@ body {
     font-size: 9px;
   }
 }
+
+/* ======================================== */
+/* INSIGHTS TAB                             */
+/* ======================================== */
+
+.insights::before {
+  content: '$ claude insights --today';
+  display: block;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px dashed var(--border);
+}
+
+.insights-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: var(--text-secondary);
+}
+
+.insights-loading::before {
+  content: '> ';
+  color: var(--accent-green);
+}
+
+.insights-loading::after {
+  content: '_';
+  animation: blink 1s step-end infinite;
+}
+
+.insights-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.insights-nav {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border);
+}
+
+.insights-nav-btn {
+  background: var(--bg-secondary);
+  border: none;
+  border-right: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 0.5rem 1.25rem;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  transition: all 0.15s;
+}
+
+.insights-nav-btn:last-child {
+  border-right: none;
+}
+
+.insights-nav-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.insights-nav-btn.active {
+  background: var(--bg-tertiary);
+  color: var(--accent-cyan);
+}
+
+.insights-nav-btn.active::before {
+  content: '> ';
+  color: var(--accent-green);
+}
+
+.insights-refresh-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  transition: all 0.15s;
+}
+
+.insights-refresh-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--accent-cyan);
+}
+
+.insights-refresh-btn.refreshing {
+  color: var(--accent-orange);
+  cursor: wait;
+}
+
+.insights-section {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  padding: 1.25rem;
+}
+
+.insights-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  text-align: center;
+  color: var(--text-muted);
+  min-height: 150px;
+}
+
+.insights-empty p {
+  margin-bottom: 0.5rem;
+}
+
+.insights-empty .empty-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.nav-hint-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--accent-cyan);
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  margin-top: 0.75rem;
+  transition: all 0.15s;
+}
+
+.nav-hint-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+/* Daily Summary Section */
+.daily-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px dashed var(--border);
+}
+
+.daily-date {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-orange);
+  margin: 0;
+}
+
+.daily-date::before {
+  content: '◆ ';
+  color: var(--accent-purple);
+}
+
+.date-nav-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  transition: all 0.15s;
+}
+
+.date-nav-btn:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--accent-cyan);
+}
+
+.date-nav-btn:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Summary Tree */
+.summary-tree {
+  font-family: inherit;
+  font-size: 13px;
+  margin-bottom: 1rem;
+}
+
+.tree-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+}
+
+.tree-branch {
+  color: var(--text-muted);
+  font-family: inherit;
+  white-space: pre;
+}
+
+.tree-label {
+  color: var(--text-primary);
+}
+
+.tree-value {
+  color: var(--accent-cyan);
+  margin-left: auto;
+}
+
+.tree-value.files {
+  color: var(--accent-blue);
+  font-size: 12px;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-value.ops {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.tree-item.last {
+  margin-bottom: 0.5rem;
+}
+
+/* Topics List */
+.insights .topics-list {
+  margin-left: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.topic-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  font-size: 12px;
+}
+
+.topic-item.empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.topic-bullet {
+  color: var(--accent-green);
+}
+
+.topic-name {
+  color: var(--text-primary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topic-stats {
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Error Patterns Section */
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-orange);
+  margin: 0 0 0.25rem 0;
+}
+
+.section-title::before {
+  content: '## ';
+  color: var(--text-muted);
+}
+
+.section-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 1.5rem;
+}
+
+.section-subtitle::before {
+  content: '# ';
+  color: var(--text-muted);
+}
+
+.pattern-group {
+  margin-bottom: 1.5rem;
+}
+
+.pattern-group:last-child {
+  margin-bottom: 0;
+}
+
+.pattern-title {
+  font-size: 11px;
+  color: var(--accent-cyan);
+  font-weight: 500;
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.pattern-title::before {
+  content: '── ';
+  color: var(--text-muted);
+}
+
+.pattern-empty {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-style: italic;
+  padding: 0.75rem;
+  background: var(--bg-primary);
+  border: 1px dashed var(--border);
+  text-align: center;
+}
+
+.pattern-empty::before {
+  content: '✓ ';
+  color: var(--accent-green);
+}
+
+/* Struggle Files */
+.struggle-files {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border);
+}
+
+.struggle-file {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.struggle-file:last-child {
+  border-bottom: none;
+}
+
+.struggle-file.severity-high {
+  border-left: 3px solid var(--accent-red);
+}
+
+.struggle-file.severity-medium {
+  border-left: 3px solid var(--accent-orange);
+}
+
+.struggle-file.severity-low {
+  border-left: 3px solid var(--accent-blue);
+}
+
+.struggle-name {
+  color: var(--text-primary);
+  font-weight: 500;
+  flex: 1;
+}
+
+.struggle-count {
+  color: var(--accent-orange);
+}
+
+.struggle-date {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.struggle-badge {
+  padding: 0.15rem 0.4rem;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-radius: 2px;
+}
+
+.struggle-badge.high {
+  background: var(--accent-red);
+  color: white;
+}
+
+.struggle-badge.medium {
+  background: var(--accent-orange);
+  color: var(--bg-primary);
+}
+
+.struggle-badge.low {
+  background: var(--accent-blue);
+  color: var(--bg-primary);
+}
+
+/* Repeated Commands */
+.repeated-commands {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border);
+}
+
+.repeated-cmd {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.repeated-cmd:last-child {
+  border-bottom: none;
+}
+
+.cmd-name {
+  background: var(--bg-tertiary);
+  padding: 0.2rem 0.5rem;
+  color: var(--accent-purple);
+  font-family: inherit;
+}
+
+.cmd-note {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+/* Error Mentions */
+.error-mentions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.error-mention {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.mention-keyword {
+  color: var(--accent-red);
+  font-weight: 500;
+}
+
+.mention-count {
+  color: var(--accent-orange);
+  font-size: 11px;
+}
+
+.mention-sample {
+  color: var(--text-muted);
+  font-size: 10px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Thrashing Sessions */
+.thrashing-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border);
+}
+
+.thrash-session {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  border-left: 3px solid var(--accent-red);
+}
+
+.thrash-session:last-child {
+  border-bottom: none;
+}
+
+.thrash-ops {
+  color: var(--accent-red);
+  font-weight: 500;
+}
+
+.thrash-files {
+  color: var(--accent-orange);
+}
+
+.thrash-duration {
+  color: var(--accent-cyan);
+}
+
+.thrash-date {
+  color: var(--text-muted);
+  margin-left: auto;
+  font-size: 11px;
+}
+
+/* Time-on-Task Section */
+.tasks-summary {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  margin-bottom: 1.25rem;
+}
+
+.tasks-summary-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  background: var(--bg-primary);
+  border-right: 1px solid var(--border);
+  flex: 1;
+}
+
+.tasks-summary-item:last-child {
+  border-right: none;
+}
+
+.summary-num {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--accent-cyan);
+}
+
+.tasks-summary-item .summary-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 0.25rem;
+}
+
+/* Task Cards */
+.insights .tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.task-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  padding: 1rem;
+  transition: border-color 0.15s;
+}
+
+.task-card:hover {
+  border-color: var(--text-muted);
+}
+
+.task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.task-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent-cyan);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-name::before {
+  content: '◆ ';
+  color: var(--accent-purple);
+}
+
+.task-inferred {
+  font-size: 9px;
+  padding: 0.15rem 0.4rem;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.task-inferred.prompt {
+  color: var(--accent-green);
+}
+
+.task-inferred.file {
+  color: var(--accent-blue);
+}
+
+.task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  font-size: 11px;
+}
+
+.task-sessions {
+  color: var(--text-secondary);
+}
+
+.task-sessions::before {
+  content: '│ ';
+  color: var(--text-muted);
+}
+
+.task-time {
+  color: var(--accent-orange);
+}
+
+.task-time::before {
+  content: '│ ';
+  color: var(--text-muted);
+}
+
+.task-dates {
+  color: var(--text-muted);
+}
+
+.task-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.task-file {
+  font-size: 10px;
+  padding: 0.15rem 0.4rem;
+  background: var(--bg-tertiary);
+  color: var(--accent-blue);
+  border: 1px solid var(--border);
+}
+
+.task-file-more {
+  font-size: 10px;
+  padding: 0.15rem 0.4rem;
+  color: var(--text-muted);
+}
+
+/* Responsive Insights */
+@media (max-width: 768px) {
+  .insights-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .insights-nav {
+    flex-wrap: wrap;
+  }
+
+  .insights-nav-btn {
+    flex: 1;
+    text-align: center;
+  }
+
+  .daily-header {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .tree-value.files {
+    max-width: 150px;
+  }
+
+  .tasks-summary {
+    flex-direction: column;
+  }
+
+  .tasks-summary-item {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .tasks-summary-item:last-child {
+    border-bottom: none;
+  }
+
+  .task-meta {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .error-mentions {
+    flex-direction: column;
+  }
+
+  .error-mention {
+    flex-wrap: wrap;
+  }
+
+  .mention-sample {
+    max-width: 100%;
+    width: 100%;
+    margin-top: 0.25rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .insights-nav-btn {
+    padding: 0.4rem 0.6rem;
+    font-size: 11px;
+  }
+
+  .daily-date {
+    font-size: 12px;
+  }
+
+  .summary-tree {
+    font-size: 12px;
+  }
+
+  .topic-item {
+    font-size: 11px;
+  }
+
+  .struggle-file,
+  .repeated-cmd,
+  .thrash-session {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .task-header {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .task-name {
+    white-space: normal;
+  }
+
+  .summary-num {
+    font-size: 1.25rem;
+  }
+}
