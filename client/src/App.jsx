@@ -3,6 +3,9 @@ import './App.css'
 
 const API_BASE = 'http://localhost:3456/api'
 
+// Check if running in Electron
+const isElectron = typeof window !== 'undefined' && window.electronAPI?.isElectron
+
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard')
   const [stats, setStats] = useState(null)
@@ -36,16 +39,39 @@ function App() {
     return <div className="loading">Loading Claude Dashboard...</div>
   }
 
+  // Handle close button click
+  const handleClose = () => {
+    if (isElectron && window.electronAPI?.hideWindow) {
+      window.electronAPI.hideWindow()
+    }
+  }
+
   return (
-    <div className="app">
+    <div className={`app ${isElectron ? 'electron-app' : ''}`}>
       <header className="header">
-        <div className="terminal-bar">
+        <div className={`terminal-bar ${isElectron ? 'electron-titlebar' : ''}`}>
           <div className="terminal-dots">
-            <span className="terminal-dot red"></span>
+            <span
+              className="terminal-dot red"
+              onClick={handleClose}
+              title={isElectron ? "Hide to tray" : ""}
+              style={isElectron ? { cursor: 'pointer' } : {}}
+            ></span>
             <span className="terminal-dot yellow"></span>
             <span className="terminal-dot green"></span>
           </div>
-          <div className="terminal-title">claudebuddy — zsh — 80×24</div>
+          <div className="terminal-title electron-drag-region">
+            {isElectron ? 'ClaudeBuddy' : 'claudebuddy — zsh — 80×24'}
+          </div>
+          {isElectron && (
+            <button
+              className="electron-close-btn"
+              onClick={handleClose}
+              title="Hide to tray (Cmd+Q to quit)"
+            >
+              ×
+            </button>
+          )}
         </div>
         <div className="header-content">
           <h1>ClaudeBuddy</h1>

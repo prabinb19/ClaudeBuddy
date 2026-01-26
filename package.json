@@ -2,7 +2,7 @@
   "name": "claudebuddy",
   "version": "2.0.0",
   "description": "ClaudeBuddy - Your friendly companion dashboard for Claude Code with Supervisor Agent",
-  "main": "server/app/main.py",
+  "main": "electron/main.js",
   "bin": {
     "claudebuddy": "./scripts/launcher.js"
   },
@@ -16,7 +16,10 @@
     "build": "cd client && npm run build",
     "server": "cd server && source venv/bin/activate && python -m uvicorn app.main:app --port 3456",
     "server:legacy": "node server/index.js",
-    "setup:python": "cd server && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt"
+    "setup:python": "cd server && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt",
+    "electron:dev": "npm run build && electron .",
+    "electron:dev-live": "concurrently \"cd client && npm run dev\" \"sleep 3 && VITE_DEV_SERVER=true electron .\"",
+    "electron:build": "npm run build && electron-builder --mac"
   },
   "keywords": [
     "claude",
@@ -48,5 +51,34 @@
     "cors": "^2.8.5",
     "express": "^5.2.1",
     "open": "^10.1.1"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.claudebuddy.app",
+    "productName": "ClaudeBuddy",
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": "dmg",
+      "icon": "assets/icon.icns"
+    },
+    "files": [
+      "electron/**/*",
+      "client/dist/**/*",
+      "server/**/*",
+      "assets/**/*",
+      "!server/venv/**/*",
+      "!**/*.pyc",
+      "!**/__pycache__/**"
+    ],
+    "extraResources": [
+      {
+        "from": "server",
+        "to": "server",
+        "filter": ["**/*", "!venv/**/*", "!**/*.pyc", "!**/__pycache__/**"]
+      }
+    ]
   }
 }
