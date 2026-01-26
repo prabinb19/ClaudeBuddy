@@ -2102,6 +2102,209 @@ app.get('/api/insights/tasks', async (req, res) => {
   }
 });
 
+// ============================================
+// AGENTS TAB - Trending CLAUDE.md Files
+// ============================================
+
+// Agents cache (30 min TTL, same as MCP)
+let agentsCache = {
+  data: null,
+  timestamp: 0,
+  TTL: 1000 * 60 * 30
+};
+
+// Fetch repositories likely to have CLAUDE.md files from GitHub
+async function fetchAgentsFromGitHub() {
+  // Search for repos that mention CLAUDE.md, claude code, or anthropic claude
+  const queries = [
+    'CLAUDE.md in:readme',
+    'claude code instructions in:readme',
+    '"claude code" in:description',
+    'anthropic claude project in:readme stars:>10'
+  ];
+
+  const allRepos = [];
+  const seen = new Set();
+
+  for (const query of queries) {
+    try {
+      const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&sort=stars&order=desc&per_page=30`;
+      const response = await fetch(url, {
+        headers: {
+          'Accept': 'application/vnd.github.v3+json',
+          'User-Agent': 'claudebuddy-dashboard'
+        }
+      });
+
+      if (!response.ok) {
+        console.error('GitHub repo search failed:', response.status);
+        continue;
+      }
+
+      const data = await response.json();
+      for (const repo of data.items || []) {
+        if (!seen.has(repo.full_name)) {
+          seen.add(repo.full_name);
+          allRepos.push(repo);
+        }
+      }
+    } catch (e) {
+      console.error('GitHub agents fetch error:', e.message);
+    }
+  }
+
+  return allRepos;
+}
+
+// Fetch CLAUDE.md content from a repository
+async function fetchClaudeMdContent(owner, repo, path) {
+  try {
+    // Try common branch names
+    const branches = ['main', 'master'];
+    for (const branch of branches) {
+      const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`;
+      const response = await fetch(rawUrl, {
+        headers: { 'User-Agent': 'claudebuddy-dashboard' }
+      });
+      if (response.ok) {
+        return await response.text();
+      }
+    }
+    return null;
+  } catch (e) {
+    console.error('Content fetch error:', e.message);
+    return null;
+  }
+}
+
+// Get repository details (stars, description, etc.)
+async function fetchRepoDetails(fullName) {
+  try {
+    const response = await fetch(`https://api.github.com/repos/${fullName}`, {
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'claudebuddy-dashboard'
+      }
+    });
+    if (response.ok) {
+      return await response.json();
+    }
+    return null;
+  } catch (e) {
+    console.error('Repo details fetch error:', e.message);
+    return null;
+  }
+}
+
+// Categorize agent based on CLAUDE.md content and repo info
+function categorizeAgent(content, language, repoName) {
+  const text = `${content} ${repoName}`.toLowerCase();
+
+  if (text.match(/react|next\.js|nextjs|vue|svelte|angular|frontend/)) return 'frontend';
+  if (text.match(/node|express|fastapi|django|flask|backend|api|server/)) return 'backend';
+  if (text.match(/python|ml|machine learning|ai|data|pandas|numpy/)) return 'python';
+  if (text.match(/rust|cargo|rustc/)) return 'rust';
+  if (text.match(/go|golang/)) return 'go';
+  if (text.match(/typescript|ts/)) return 'typescript';
+  if (text.match(/test|jest|pytest|testing|spec/)) return 'testing';
+  if (text.match(/docker|kubernetes|devops|ci\/cd|deploy/)) return 'devops';
+  if (text.match(/cli|command|terminal/)) return 'cli';
+
+  // Fall back to language
+  if (language) {
+    const lang = language.toLowerCase();
+    if (lang === 'javascript' || lang === 'typescript') return 'typescript';
+    if (lang === 'python') return 'python';
+    if (lang === 'rust') return 'rust';
+    if (lang === 'go') return 'go';
+  }
+
+  return 'general';
+}
+
+// Agents endpoint
+app.get('/api/agents', async (req, res) => {
+  try {
+    const forceRefresh = req.query.refresh === '1';
+    const now = Date.now();
+
+    // Check cache
+    if (!forceRefresh && agentsCache.data && (now - agentsCache.timestamp) < agentsCache.TTL) {
+      return res.json(agentsCache.data);
+    }
+
+    // Fetch from GitHub
+    const searchResults = await fetchAgentsFromGitHub();
+
+    // Process results - try to fetch CLAUDE.md from each repo
+    const agents = [];
+    const processPromises = searchResults.slice(0, 50).map(async (repo) => {
+      try {
+        const fullName = repo.full_name;
+        if (!fullName) return null;
+
+        // Try to fetch CLAUDE.md content
+        const content = await fetchClaudeMdContent(
+          repo.owner?.login,
+          repo.name,
+          'CLAUDE.md'
+        );
+
+        // Skip repos without CLAUDE.md
+        if (!content) return null;
+
+        // Create preview (first 300 chars, strip markdown headers)
+        const preview = content
+          .replace(/^#+\s+/gm, '')
+          .replace(/\n+/g, ' ')
+          .substring(0, 300)
+          .trim();
+
+        return {
+          id: fullName,
+          name: repo.name,
+          author: repo.owner?.login,
+          description: repo.description || '',
+          stars: repo.stargazers_count || 0,
+          language: repo.language,
+          category: categorizeAgent(content, repo.language, repo.name),
+          content: content,
+          preview: preview + (content.length > 300 ? '...' : ''),
+          url: repo.html_url,
+          claudeUrl: `https://github.com/${fullName}/blob/${repo.default_branch || 'main'}/CLAUDE.md`,
+          updatedAt: repo.updated_at,
+          topics: repo.topics || []
+        };
+      } catch (e) {
+        console.error('Agent processing error:', e.message);
+        return null;
+      }
+    });
+
+    const results = await Promise.all(processPromises);
+    const validAgents = results.filter(a => a !== null);
+
+    // Sort by stars
+    validAgents.sort((a, b) => b.stars - a.stars);
+
+    // Cache results
+    agentsCache = {
+      data: {
+        agents: validAgents,
+        fetchedAt: new Date().toISOString(),
+        totalFound: searchResults.length
+      },
+      timestamp: now,
+      TTL: agentsCache.TTL
+    };
+
+    res.json(agentsCache.data);
+  } catch (error) {
+    console.error('Agents endpoint error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get FAQ/Help content
 app.get('/api/help', (req, res) => {
   const help = {

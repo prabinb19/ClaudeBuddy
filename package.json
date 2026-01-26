@@ -1,17 +1,22 @@
 {
   "name": "claudebuddy",
-  "version": "1.0.0",
-  "description": "ClaudeBuddy - Your friendly companion dashboard for Claude Code",
-  "main": "server/index.js",
+  "version": "2.0.0",
+  "description": "ClaudeBuddy - Your friendly companion dashboard for Claude Code with Supervisor Agent",
+  "main": "server/app/main.py",
   "bin": {
     "claudebuddy": "./scripts/launcher.js"
   },
   "scripts": {
     "postinstall": "cd client && npm install && npm run build",
-    "start": "node server/index.js",
-    "dev": "concurrently \"node server/index.js\" \"cd client && npm run dev\"",
+    "start": "cd server && source venv/bin/activate && python -m uvicorn app.main:app --host 0.0.0.0 --port 3456",
+    "start:legacy": "node server/index.js",
+    "dev": "cd server && source venv/bin/activate && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 3456",
+    "dev:legacy": "concurrently \"node server/index.js\" \"cd client && npm run dev\"",
+    "dev:client": "cd client && npm run dev",
     "build": "cd client && npm run build",
-    "server": "node server/index.js"
+    "server": "cd server && source venv/bin/activate && python -m uvicorn app.main:app --port 3456",
+    "server:legacy": "node server/index.js",
+    "setup:python": "cd server && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt"
   },
   "keywords": [
     "claude",

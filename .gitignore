@@ -2,6 +2,16 @@
 node_modules/
 client/node_modules/
 
+# Python
+server/venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+
 # Build output
 client/dist/
 

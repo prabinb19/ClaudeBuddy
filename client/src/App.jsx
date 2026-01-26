@@ -86,6 +86,18 @@ function App() {
             >
               insights
             </button>
+            <button
+              className={activeTab === 'agents' ? 'active' : ''}
+              onClick={() => setActiveTab('agents')}
+            >
+              agents
+            </button>
+            <button
+              className={activeTab === 'research' ? 'active' : ''}
+              onClick={() => setActiveTab('research')}
+            >
+              research
+            </button>
           </nav>
         </div>
       </header>
@@ -108,6 +120,12 @@ function App() {
         )}
         {activeTab === 'insights' && (
           <InsightsTab />
+        )}
+        {activeTab === 'agents' && (
+          <AgentsTab />
+        )}
+        {activeTab === 'research' && (
+          <ResearchTab projects={projects} />
         )}
       </main>
     </div>
@@ -1501,6 +1519,578 @@ function InsightsTab() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AgentsTab() {
+  const [filter, setFilter] = useState('all')
+  const [search, setSearch] = useState('')
+  const [sortBy, setSortBy] = useState('stars')
+  const [copiedId, setCopiedId] = useState(null)
+  const [expandedId, setExpandedId] = useState(null)
+  const [agents, setAgents] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [fetchedAt, setFetchedAt] = useState(null)
+
+  useEffect(() => {
+    fetchAgents()
+  }, [])
+
+  async function fetchAgents(forceRefresh = false) {
+    try {
+      if (forceRefresh) setRefreshing(true)
+      const url = forceRefresh ? `${API_BASE}/agents?refresh=1` : `${API_BASE}/agents`
+      const res = await fetch(url)
+      const data = await res.json()
+      setAgents(data.agents || [])
+      setFetchedAt(data.fetchedAt)
+    } catch (error) {
+      console.error('Failed to fetch agents:', error)
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }
+
+  const categories = [
+    { id: 'all', name: 'All' },
+    { id: 'frontend', name: 'Frontend' },
+    { id: 'backend', name: 'Backend' },
+    { id: 'typescript', name: 'TypeScript' },
+    { id: 'python', name: 'Python' },
+    { id: 'rust', name: 'Rust' },
+    { id: 'go', name: 'Go' },
+    { id: 'devops', name: 'DevOps' },
+    { id: 'cli', name: 'CLI' },
+    { id: 'general', name: 'General' },
+  ]
+
+  const sortOptions = [
+    { id: 'stars', name: 'Stars' },
+    { id: 'recent', name: 'Recent' },
+    { id: 'name', name: 'Name A-Z' },
+  ]
+
+  // Filter by category
+  let results = filter === 'all'
+    ? agents
+    : agents.filter(a => a.category === filter)
+
+  // Filter by search
+  if (search.trim()) {
+    const q = search.toLowerCase()
+    results = results.filter(a =>
+      a.name?.toLowerCase().includes(q) ||
+      a.description?.toLowerCase().includes(q) ||
+      a.author?.toLowerCase().includes(q) ||
+      a.preview?.toLowerCase().includes(q) ||
+      a.topics?.some(t => t.toLowerCase().includes(q))
+    )
+  }
+
+  // Sort results
+  results = [...results].sort((a, b) => {
+    switch (sortBy) {
+      case 'stars':
+        return (b.stars || 0) - (a.stars || 0)
+      case 'name':
+        return (a.name || '').localeCompare(b.name || '')
+      case 'recent':
+        return new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0)
+      default:
+        return 0
+    }
+  })
+
+  const copyContent = (id, content) => {
+    navigator.clipboard.writeText(content)
+    setCopiedId(id)
+    setTimeout(() => setCopiedId(null), 2000)
+  }
+
+  const formatStars = (stars) => {
+    if (!stars) return '0'
+    if (stars >= 1000) return `${(stars / 1000).toFixed(1)}k`
+    return stars.toString()
+  }
+
+  const toggleExpand = (id) => {
+    setExpandedId(expandedId === id ? null : id)
+  }
+
+  if (loading) {
+    return (
+      <div className="agents">
+        <div className="agents-loading">Fetching trending CLAUDE.md files from GitHub...</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="agents">
+      <div className="agents-header">
+        <div className="agents-intro">
+          <p>Discover trending CLAUDE.md project instruction files from the community.</p>
+          <p className="agents-config-path">Add to your project: <code>CLAUDE.md</code> in project root</p>
+          {fetchedAt && (
+            <p className="agents-fetched">
+              Live from GitHub {agents.length} configs found Updated {new Date(fetchedAt).toLocaleTimeString()}
+              <button
+                className={`agents-refresh-btn ${refreshing ? 'refreshing' : ''}`}
+                onClick={() => fetchAgents(true)}
+                disabled={refreshing}
+              >
+                {refreshing ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </p>
+          )}
+        </div>
+
+        <div className="agents-controls">
+          <div className="agents-search">
+            <input
+              type="text"
+              placeholder="Search configs..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search && (
+              <button className="agents-search-clear" onClick={() => setSearch('')}>x</button>
+            )}
+          </div>
+
+          <div className="agents-sort">
+            <span className="sort-label">Sort:</span>
+            {sortOptions.map(opt => (
+              <button
+                key={opt.id}
+                className={`agents-sort-btn ${sortBy === opt.id ? 'active' : ''}`}
+                onClick={() => setSortBy(opt.id)}
+              >
+                {opt.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="agents-filters">
+          {categories.map(cat => (
+            <button
+              key={cat.id}
+              className={`agents-filter-btn ${filter === cat.id ? 'active' : ''}`}
+              onClick={() => setFilter(cat.id)}
+            >
+              {cat.name}
+              {cat.id !== 'all' && (
+                <span className="filter-count">
+                  {agents.filter(a => a.category === cat.id).length}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="agents-results-info">
+        Showing {results.length} of {agents.length} configs
+        {search && <span> matching "{search}"</span>}
+        {filter !== 'all' && <span> in {filter}</span>}
+      </div>
+
+      <div className="agents-grid">
+        {results.map(agent => (
+          <div key={agent.id} className="agents-card">
+            <div className="agents-card-header">
+              <h3>{agent.name}</h3>
+              <div className="agents-stats">
+                <span className="agents-stars">{formatStars(agent.stars)}</span>
+              </div>
+            </div>
+            <p className="agents-desc">{agent.description || 'No description available'}</p>
+
+            <div className="agents-meta">
+              <span className="agents-author">by {agent.author}</span>
+              <div className="agents-badges">
+                <span className={`agents-category ${agent.category}`}>{agent.category}</span>
+                {agent.language && (
+                  <span className="agents-language">{agent.language}</span>
+                )}
+              </div>
+            </div>
+
+            {agent.topics?.length > 0 && (
+              <div className="agents-topics">
+                {agent.topics.slice(0, 5).map((topic, i) => (
+                  <span key={i} className="agents-topic">{topic}</span>
+                ))}
+              </div>
+            )}
+
+            <div className="agents-preview">
+              <div className="preview-header" onClick={() => toggleExpand(agent.id)}>
+                <span className="preview-label">CLAUDE.md Preview</span>
+                <span className="preview-toggle">{expandedId === agent.id ? '[-]' : '[+]'}</span>
+              </div>
+              <pre className={`preview-content ${expandedId === agent.id ? 'expanded' : ''}`}>
+                {expandedId === agent.id ? agent.content : agent.preview}
+              </pre>
+            </div>
+
+            <div className="agents-actions">
+              <button
+                className={`agents-copy-btn ${copiedId === agent.id ? 'copied' : ''}`}
+                onClick={() => copyContent(agent.id, agent.content)}
+              >
+                {copiedId === agent.id ? 'Copied!' : 'Copy CLAUDE.md'}
+              </button>
+              <a href={agent.claudeUrl} target="_blank" rel="noopener noreferrer" className="agents-link-btn">
+                View on GitHub
+              </a>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {results.length === 0 && (
+        <div className="agents-empty">
+          {search ? `No configs found matching "${search}"` : 'No configs found in this category'}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ResearchTab({ projects }) {
+  const [query, setQuery] = useState('')
+  const [selectedProject, setSelectedProject] = useState('')
+  const [maxSearches, setMaxSearches] = useState(5)
+  const [isResearching, setIsResearching] = useState(false)
+  const [currentTask, setCurrentTask] = useState(null)
+  const [taskStatus, setTaskStatus] = useState(null)
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState(null)
+  const [events, setEvents] = useState([])
+
+  // Set default project when projects load
+  useEffect(() => {
+    if (projects.length > 0 && !selectedProject) {
+      setSelectedProject(projects[0].path)
+    }
+  }, [projects])
+
+  const startResearch = async () => {
+    if (!query.trim() || !selectedProject) {
+      setError('Please enter a research query and select a project')
+      return
+    }
+
+    setIsResearching(true)
+    setError(null)
+    setResult(null)
+    setEvents([])
+    setTaskStatus(null)
+
+    try {
+      // Start research task
+      const response = await fetch(`${API_BASE}/research/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: query.trim(),
+          target_project: selectedProject,
+          max_searches: maxSearches,
+          search_depth: 'advanced'
+        })
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.detail || 'Failed to start research')
+      }
+
+      const data = await response.json()
+      setCurrentTask(data.task_id)
+
+      // Start polling for status
+      pollTaskStatus(data.task_id)
+
+      // Connect to SSE stream for real-time updates
+      const eventSource = new EventSource(`${API_BASE}/research/${data.task_id}/stream`)
+      
+      eventSource.onmessage = (event) => {
+        try {
+          const eventData = JSON.parse(event.data)
+          setEvents(prev => [...prev, eventData])
+          
+          if (eventData.type === 'progress') {
+            setTaskStatus(prev => ({
+              ...prev,
+              search_count: eventData.data.search_count,
+              findings_count: eventData.data.findings_count,
+              current_phase: eventData.data.phase
+            }))
+          } else if (eventData.type === 'complete') {
+            fetchResult(data.task_id)
+            eventSource.close()
+          } else if (eventData.type === 'error') {
+            setError(eventData.data)
+            eventSource.close()
+            setIsResearching(false)
+          }
+        } catch (e) {
+          console.error('Failed to parse event:', e)
+        }
+      }
+
+      eventSource.onerror = () => {
+        eventSource.close()
+      }
+
+    } catch (err) {
+      setError(err.message)
+      setIsResearching(false)
+    }
+  }
+
+  const pollTaskStatus = async (taskId) => {
+    const poll = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/research/${taskId}/status`)
+        const data = await response.json()
+        setTaskStatus(data)
+
+        if (data.status === 'completed') {
+          fetchResult(taskId)
+        } else if (data.status === 'failed') {
+          setError(data.error || 'Research failed')
+          setIsResearching(false)
+        } else if (data.status !== 'cancelled') {
+          // Continue polling
+          setTimeout(poll, 2000)
+        }
+      } catch (e) {
+        console.error('Poll error:', e)
+      }
+    }
+
+    poll()
+  }
+
+  const fetchResult = async (taskId) => {
+    try {
+      const response = await fetch(`${API_BASE}/research/${taskId}/result`)
+      const data = await response.json()
+      setResult(data)
+      setIsResearching(false)
+    } catch (e) {
+      console.error('Failed to fetch result:', e)
+      setIsResearching(false)
+    }
+  }
+
+  const cancelResearch = async () => {
+    if (!currentTask) return
+
+    try {
+      await fetch(`${API_BASE}/research/${currentTask}`, {
+        method: 'DELETE'
+      })
+      setIsResearching(false)
+      setCurrentTask(null)
+    } catch (e) {
+      console.error('Failed to cancel:', e)
+    }
+  }
+
+  const copyResult = () => {
+    if (result?.summary) {
+      navigator.clipboard.writeText(result.summary)
+    }
+  }
+
+  return (
+    <div className="research">
+      <div className="research-header">
+        <h2>Supervisor Agent Research</h2>
+        <p className="research-intro">
+          Use the Supervisor Agent to research any topic. The agent will search the web,
+          synthesize findings, and save a comprehensive summary to your project.
+        </p>
+      </div>
+
+      {!isResearching && !result && (
+        <div className="research-form">
+          <div className="research-field">
+            <label htmlFor="research-query">Research Query</label>
+            <textarea
+              id="research-query"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="What would you like to research? e.g., 'Best practices for implementing authentication in React applications'"
+              rows={4}
+            />
+          </div>
+
+          <div className="research-field">
+            <label htmlFor="target-project">Target Project</label>
+            <select
+              id="target-project"
+              value={selectedProject}
+              onChange={(e) => setSelectedProject(e.target.value)}
+            >
+              <option value="">Select a project...</option>
+              {projects.map(project => (
+                <option key={project.id} value={project.path}>
+                  {project.name} ({project.path})
+                </option>
+              ))}
+            </select>
+            <span className="field-hint">Research results will be saved to this project's .research/ directory</span>
+          </div>
+
+          <div className="research-field">
+            <label htmlFor="max-searches">Max Searches</label>
+            <div className="range-input">
+              <input
+                type="range"
+                id="max-searches"
+                min="2"
+                max="10"
+                value={maxSearches}
+                onChange={(e) => setMaxSearches(parseInt(e.target.value))}
+              />
+              <span className="range-value">{maxSearches}</span>
+            </div>
+            <span className="field-hint">The supervisor will decide when to stop based on information sufficiency</span>
+          </div>
+
+          {error && (
+            <div className="research-error">
+              {error}
+            </div>
+          )}
+
+          <button
+            className="research-start-btn"
+            onClick={startResearch}
+            disabled={!query.trim() || !selectedProject}
+          >
+            Start Research
+          </button>
+        </div>
+      )}
+
+      {isResearching && (
+        <div className="research-progress">
+          <div className="progress-header">
+            <h3>Research in Progress</h3>
+            <button className="cancel-btn" onClick={cancelResearch}>Cancel</button>
+          </div>
+
+          <div className="progress-query">
+            <span className="label">Query:</span>
+            <span className="value">{query}</span>
+          </div>
+
+          <div className="progress-stats">
+            <div className="progress-stat">
+              <span className="stat-label">Searches</span>
+              <span className="stat-value">{taskStatus?.search_count || 0} / {maxSearches}</span>
+            </div>
+            <div className="progress-stat">
+              <span className="stat-label">Findings</span>
+              <span className="stat-value">{taskStatus?.findings_count || 0}</span>
+            </div>
+            <div className="progress-stat">
+              <span className="stat-label">Phase</span>
+              <span className="stat-value phase">{taskStatus?.current_phase || 'starting'}</span>
+            </div>
+          </div>
+
+          <div className="progress-bar-container">
+            <div 
+              className="progress-bar" 
+              style={{ width: `${((taskStatus?.search_count || 0) / maxSearches) * 100}%` }}
+            />
+          </div>
+
+          <div className="progress-events">
+            {events.slice(-5).map((event, i) => (
+              <div key={i} className={`event-item ${event.type}`}>
+                <span className="event-type">[{event.type}]</span>
+                <span className="event-data">
+                  {typeof event.data === 'string' ? event.data : JSON.stringify(event.data)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {result && (
+        <div className="research-result">
+          <div className="result-header">
+            <h3>Research Complete</h3>
+            <div className="result-actions">
+              <button className="copy-btn" onClick={copyResult}>Copy Summary</button>
+              <button className="new-btn" onClick={() => {
+                setResult(null)
+                setQuery('')
+                setCurrentTask(null)
+              }}>New Research</button>
+            </div>
+          </div>
+
+          <div className="result-meta">
+            <span className="meta-item">
+              <span className="label">Status:</span>
+              <span className={`value ${result.status}`}>{result.status}</span>
+            </span>
+            <span className="meta-item">
+              <span className="label">Sources:</span>
+              <span className="value">{result.findings?.length || 0}</span>
+            </span>
+            {result.saved_path && (
+              <span className="meta-item">
+                <span className="label">Saved to:</span>
+                <span className="value path">{result.saved_path}</span>
+              </span>
+            )}
+          </div>
+
+          {result.error && (
+            <div className="result-error">
+              Error: {result.error}
+            </div>
+          )}
+
+          {result.summary && (
+            <div className="result-summary">
+              <h4>Summary</h4>
+              <div className="summary-content">
+                {result.summary.split('\n').map((line, i) => {
+                  if (line.startsWith('# ')) {
+                    return <h2 key={i}>{line.slice(2)}</h2>
+                  } else if (line.startsWith('## ')) {
+                    return <h3 key={i}>{line.slice(3)}</h3>
+                  } else if (line.startsWith('### ')) {
+                    return <h4 key={i}>{line.slice(4)}</h4>
+                  } else if (line.startsWith('- ') || line.startsWith('* ')) {
+                    return <li key={i}>{line.slice(2)}</li>
+                  } else if (line.startsWith('**') && line.endsWith('**')) {
+                    return <p key={i}><strong>{line.slice(2, -2)}</strong></p>
+                  } else if (line.trim()) {
+                    return <p key={i}>{line}</p>
+                  }
+                  return null
+                })}
+              </div>
             </div>
           )}
         </div>
