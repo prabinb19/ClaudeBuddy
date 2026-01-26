@@ -80,12 +80,12 @@ class ClaudeReader:
     
     def _decode_project_path(self, encoded_name: str) -> str:
         """Decode Claude project directory name back to actual filesystem path.
-        
+
         Claude encodes paths by replacing '/' with '-', but original hyphens
-        and dots in directory names are also preserved as '-'. We need to 
+        and dots in directory names are also preserved as '-'. We need to
         reconstruct by checking which paths actually exist on the filesystem.
-        
-        Example: '-Users-prabinbajgai-Documents-GitHub-auto-pusher' 
+
+        Example: '-Users-prabinbajgai-Documents-GitHub-auto-pusher'
                  -> '/Users/prabinbajgai/Documents/GitHub/auto-pusher'
         Example: '-Users-prabinbajgai-Documents-GitHub-prabinb19-github-io'
                  -> '/Users/prabinbajgai/Documents/GitHub/prabinb19.github.io'
@@ -93,37 +93,37 @@ class ClaudeReader:
         # Remove leading hyphen and split
         if encoded_name.startswith("-"):
             encoded_name = encoded_name[1:]
-        
+
         parts = encoded_name.split("-")
-        
+
         # Build path by checking filesystem
         # Start with root
         current_path = Path("/")
         result_parts = []
-        
+
         i = 0
         while i < len(parts):
             # Try progressively longer combinations with different separators
             found = False
-            
+
             # Try from longest possible to shortest
             for j in range(len(parts), i, -1):
                 segment_parts = parts[i:j]
-                
+
                 # Try different separator combinations for multi-part segments
                 # For simplicity, try common patterns: all-hyphens, all-dots, mixed
                 candidates = []
-                
+
                 if len(segment_parts) == 1:
                     candidates = [segment_parts[0]]
                 else:
-                    # Try hyphen-joined
+                    # Try hyphen-joined first (most common for project names)
                     candidates.append("-".join(segment_parts))
                     # Try dot-joined (common for domains like github.io)
                     candidates.append(".".join(segment_parts))
                     # Try underscore-joined (common in some projects)
                     candidates.append("_".join(segment_parts))
-                
+
                 for candidate in candidates:
                     test_path = current_path / candidate
                     if test_path.exists():
@@ -132,17 +132,29 @@ class ClaudeReader:
                         i = j
                         found = True
                         break
-                
+
                 if found:
                     break
-            
+
             if not found:
-                # If nothing exists, just use the single part
-                # This handles the case where the directory doesn't exist anymore
-                result_parts.append(parts[i])
-                current_path = current_path / parts[i]
-                i += 1
-        
+                # Path doesn't exist - use heuristics to reconstruct the final segment
+                # This handles deleted/moved directories
+                remaining_parts = parts[i:]
+
+                # Check for domain-like patterns (e.g., github.io, gitlab.com)
+                domain_suffixes = ['io', 'com', 'org', 'net', 'dev', 'app', 'co']
+
+                # Try to detect if remaining parts form a domain-like name
+                if len(remaining_parts) >= 2 and remaining_parts[-1] in domain_suffixes:
+                    # Likely a domain name - join with dots
+                    segment = ".".join(remaining_parts)
+                else:
+                    # Likely a project name with hyphens - join with hyphens
+                    segment = "-".join(remaining_parts)
+
+                result_parts.append(segment)
+                break  # We've consumed all remaining parts
+
         return "/" + "/".join(result_parts)
     
     def data_exists(self) -> bool:

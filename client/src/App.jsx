@@ -1769,6 +1769,8 @@ function AgentsTab() {
 function ResearchTab({ projects }) {
   const [query, setQuery] = useState('')
   const [selectedProject, setSelectedProject] = useState('')
+  const [newProjectPath, setNewProjectPath] = useState('')
+  const [isCreatingNew, setIsCreatingNew] = useState(false)
   const [maxSearches, setMaxSearches] = useState(5)
   const [isResearching, setIsResearching] = useState(false)
   const [currentTask, setCurrentTask] = useState(null)
@@ -1779,14 +1781,31 @@ function ResearchTab({ projects }) {
 
   // Set default project when projects load
   useEffect(() => {
-    if (projects.length > 0 && !selectedProject) {
+    if (projects.length > 0 && !selectedProject && !isCreatingNew) {
       setSelectedProject(projects[0].path)
     }
   }, [projects])
 
+  const handleProjectChange = (e) => {
+    const value = e.target.value
+    if (value === '__create_new__') {
+      setIsCreatingNew(true)
+      setSelectedProject('')
+    } else {
+      setIsCreatingNew(false)
+      setSelectedProject(value)
+      setNewProjectPath('')
+    }
+  }
+
+  const getEffectiveProjectPath = () => {
+    return isCreatingNew ? newProjectPath.trim() : selectedProject
+  }
+
   const startResearch = async () => {
-    if (!query.trim() || !selectedProject) {
-      setError('Please enter a research query and select a project')
+    const targetPath = getEffectiveProjectPath()
+    if (!query.trim() || !targetPath) {
+      setError('Please enter a research query and select or create a project')
       return
     }
 
@@ -1803,7 +1822,7 @@ function ResearchTab({ projects }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           query: query.trim(),
-          target_project: selectedProject,
+          target_project: targetPath,
           max_searches: maxSearches,
           search_depth: 'advanced'
         })
@@ -1941,8 +1960,8 @@ function ResearchTab({ projects }) {
             <label htmlFor="target-project">Target Project</label>
             <select
               id="target-project"
-              value={selectedProject}
-              onChange={(e) => setSelectedProject(e.target.value)}
+              value={isCreatingNew ? '__create_new__' : selectedProject}
+              onChange={handleProjectChange}
             >
               <option value="">Select a project...</option>
               {projects.map(project => (
@@ -1950,8 +1969,24 @@ function ResearchTab({ projects }) {
                   {project.name} ({project.path})
                 </option>
               ))}
+              <option value="__create_new__">+ Create New Project...</option>
             </select>
-            <span className="field-hint">Research results will be saved to this project's .research/ directory</span>
+            {isCreatingNew && (
+              <input
+                type="text"
+                className="new-project-input"
+                value={newProjectPath}
+                onChange={(e) => setNewProjectPath(e.target.value)}
+                placeholder="Enter full path, e.g., /Users/username/Documents/my-project"
+                style={{ marginTop: '8px' }}
+              />
+            )}
+            <span className="field-hint">
+              {isCreatingNew
+                ? 'Enter the full path where the .research/ directory will be created'
+                : "Research results will be saved to this project's .research/ directory"
+              }
+            </span>
           </div>
 
           <div className="research-field">
@@ -1979,7 +2014,7 @@ function ResearchTab({ projects }) {
           <button
             className="research-start-btn"
             onClick={startResearch}
-            disabled={!query.trim() || !selectedProject}
+            disabled={!query.trim() || !getEffectiveProjectPath()}
           >
             Start Research
           </button>
