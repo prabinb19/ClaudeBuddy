@@ -659,6 +659,12 @@ function App() {
               catalog
             </button>
             <button
+              className={activeTab === 'snippets' ? 'active' : ''}
+              onClick={() => setActiveTab('snippets')}
+            >
+              snippets
+            </button>
+            <button
               className={activeTab === 'research' ? 'active' : ''}
               onClick={() => setActiveTab('research')}
             >
@@ -677,6 +683,9 @@ function App() {
         )}
         {activeTab === 'catalog' && (
           <CatalogTab />
+        )}
+        {activeTab === 'snippets' && (
+          <SnippetsTab projects={projects} />
         )}
         {activeTab === 'research' && (
           <ResearchTab projects={projects} />
@@ -892,6 +901,167 @@ function DashboardTab({ stats, projects, history }) {
           ))}
         </div>
       </div>
+    </div>
+  )
+}
+
+// Snippets Tab - discover markdown files across all projects
+function SnippetsTab({ projects }) {
+  const [data, setData] = useState({ files: [], by_project: [], total: 0 })
+  const [loading, setLoading] = useState(true)
+  const [selected, setSelected] = useState(null)
+  const [copiedId, setCopiedId] = useState(null)
+  const [showCopyTo, setShowCopyTo] = useState(false)
+
+  useEffect(() => {
+    fetchFiles()
+  }, [])
+
+  async function fetchFiles() {
+    try {
+      const res = await fetch(`${API_BASE}/snippets`)
+      const result = await res.json()
+      setData(result)
+    } catch (error) {
+      console.error('Failed to fetch:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function loadFile(filePath) {
+    try {
+      const res = await fetch(`${API_BASE}/snippets/file?path=${encodeURIComponent(filePath)}`)
+      const result = await res.json()
+      setSelected(result)
+    } catch (error) {
+      console.error('Failed to load file:', error)
+    }
+  }
+
+  async function copyToProject(targetPath) {
+    try {
+      const res = await fetch(`${API_BASE}/snippets/copy?path=${encodeURIComponent(selected.path)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_project: targetPath, mode: 'append' })
+      })
+      if (res.ok) {
+        alert(`Added to ${targetPath}/CLAUDE.md`)
+        setShowCopyTo(false)
+      }
+    } catch (error) {
+      console.error('Failed to copy:', error)
+    }
+  }
+
+  async function copyToClipboard(text) {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedId('copied')
+      setTimeout(() => setCopiedId(null), 2000)
+    } catch (err) {
+      console.error('Failed to copy:', err)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="snippets">
+        <div className="snippets-loading">Scanning projects...</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="snippets">
+      {/* Header */}
+      <div className="snippets-header">
+        <div>
+          <h2>Markdown Files</h2>
+          <span className="snippets-count">{data.total} files across {data.by_project.length} projects</span>
+        </div>
+        <button className="snippet-btn" onClick={fetchFiles}>Refresh</button>
+      </div>
+
+      {/* Selected file view */}
+      {selected && (
+        <div className="snippet-detail">
+          <div className="snippet-detail-header">
+            <button className="back-btn" onClick={() => { setSelected(null); setShowCopyTo(false) }}>Back</button>
+            <h3>{selected.title}</h3>
+            <div className="snippet-actions">
+              <button
+                className={`snippet-btn ${copiedId ? 'copied' : ''}`}
+                onClick={() => copyToClipboard(selected.content)}
+              >
+                {copiedId ? 'Copied!' : 'Copy'}
+              </button>
+              <button className="snippet-btn primary" onClick={() => setShowCopyTo(true)}>
+                Add to Project
+              </button>
+            </div>
+          </div>
+
+          <div className="file-path-info">{selected.path}</div>
+
+          {/* Project picker */}
+          {showCopyTo && (
+            <div className="inject-picker">
+              <p>Append to which project's CLAUDE.md?</p>
+              {projects.map(p => (
+                <button
+                  key={p.id}
+                  className="inject-project-btn"
+                  onClick={() => copyToProject(p.path)}
+                >
+                  {p.name}
+                </button>
+              ))}
+              <button className="snippet-btn" onClick={() => setShowCopyTo(false)}>Cancel</button>
+            </div>
+          )}
+
+          <div className="snippet-content">
+            <pre>{selected.content}</pre>
+          </div>
+        </div>
+      )}
+
+      {/* Files grouped by project */}
+      {!selected && (
+        <>
+          {data.by_project.length === 0 ? (
+            <div className="snippets-empty">
+              <p>No markdown files found.</p>
+              <p>Add .md files to your projects.</p>
+            </div>
+          ) : (
+            <div className="projects-files-list">
+              {data.by_project.map(proj => (
+                <div key={proj.project_path} className="project-files-group">
+                  <div className="project-files-header">
+                    <span className="project-files-name">{proj.project_name}</span>
+                    <span className="project-files-count">{proj.files.length} files</span>
+                  </div>
+                  <div className="project-files">
+                    {proj.files.map(f => (
+                      <div
+                        key={f.path}
+                        className="file-item"
+                        onClick={() => loadFile(f.path)}
+                      >
+                        <span className="file-name">{f.filename}</span>
+                        <span className="file-preview">{f.preview}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }

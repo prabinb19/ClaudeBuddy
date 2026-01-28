@@ -16,6 +16,7 @@ from .routers import (
     agents_router,
     insights_router,
     research_router,
+    team_router,
 )
 
 
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
     app.include_router(agents_router, prefix="/api")
     app.include_router(insights_router, prefix="/api")
     app.include_router(research_router, prefix="/api")
+    app.include_router(team_router, prefix="/api")
     
     # Serve static files (React build)
     client_dist = Path(__file__).parent.parent.parent / "client" / "dist"

@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     insights_cache_ttl: int = 300  # 5 minutes
     productivity_cache_ttl: int = 300  # 5 minutes
     agents_cache_ttl: int = 300  # 5 minutes
+    team_cache_ttl: int = 300  # 5 minutes
 
     @property
     def claude_dir(self) -> Path:

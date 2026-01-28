@@ -9,13 +9,10 @@
   "scripts": {
     "postinstall": "cd client && npm install && npm run build",
     "start": "cd server && source venv/bin/activate && python -m uvicorn app.main:app --host 0.0.0.0 --port 3456",
-    "start:legacy": "node server/index.js",
     "dev": "cd server && source venv/bin/activate && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 3456",
-    "dev:legacy": "concurrently \"node server/index.js\" \"cd client && npm run dev\"",
     "dev:client": "cd client && npm run dev",
     "build": "cd client && npm run build",
     "server": "cd server && source venv/bin/activate && python -m uvicorn app.main:app --port 3456",
-    "server:legacy": "node server/index.js",
     "setup:python": "cd server && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt",
     "electron:dev": "npm run build && electron .",
     "electron:dev-live": "concurrently \"cd client && npm run dev\" \"sleep 3 && VITE_DEV_SERVER=true electron .\"",
@@ -48,8 +45,6 @@
   "type": "commonjs",
   "dependencies": {
     "concurrently": "^9.1.2",
-    "cors": "^2.8.5",
-    "express": "^5.2.1",
     "open": "^10.1.1"
   },
   "devDependencies": {

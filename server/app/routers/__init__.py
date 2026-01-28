@@ -7,6 +7,7 @@ from .mcp import router as mcp_router
 from .agents import router as agents_router
 from .insights import router as insights_router
 from .research import router as research_router
+from .team import router as team_router
 
 __all__ = [
     "stats_router",
@@ -16,4 +17,5 @@ __all__ = [
     "agents_router",
     "insights_router",
     "research_router",
+    "team_router",
 ]
